@@ -3,9 +3,11 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/Wasylq/StashJanitor/internal/apply"
 	"github.com/Wasylq/StashJanitor/internal/config"
+	"github.com/Wasylq/StashJanitor/internal/confirm"
 	"github.com/Wasylq/StashJanitor/internal/decide"
 	"github.com/Wasylq/StashJanitor/internal/report"
 	"github.com/Wasylq/StashJanitor/internal/scan"
@@ -208,8 +210,47 @@ func runScenesApply(cmd *cobra.Command, args []string) error {
 		}
 		fmt.Fprintln(out, "\nDone. Tags have been applied. Review and bulk-delete losers in Stash's UI.")
 		return nil
+
 	case "merge":
-		return fmt.Errorf("scenes apply --action merge is not implemented yet (task #13)")
+		plan, err := apply.PlanMerge(ctx, st)
+		if err != nil {
+			return err
+		}
+		if err := apply.PrintMergePlan(out, plan, flagScenesApplyCommit); err != nil {
+			return err
+		}
+		if !flagScenesApplyCommit {
+			return nil
+		}
+		if len(plan.Groups) == 0 {
+			return nil
+		}
+
+		// Destructive action — gate behind interactive YES (or --yes).
+		summary := confirm.Summary{
+			Action:           "merge",
+			GroupCount:       len(plan.Groups),
+			SceneCount:       plan.TotalLosers + len(plan.Groups), // losers + keepers
+			ReclaimableBytes: plan.ReclaimableBytes,
+		}
+		ok, err := confirm.PromptYES(os.Stdin, out, summary, flagScenesApplyYes)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+
+		scorer, err := decide.NewFileScorer(cfg)
+		if err != nil {
+			return err
+		}
+		reports, err := apply.ExecuteMerge(ctx, client, st, cfg, scorer, plan)
+		if err != nil {
+			return err
+		}
+		return apply.PrintMergeReports(out, reports)
+
 	case "delete":
 		return fmt.Errorf("scenes apply --action delete is Phase 2; use --action merge to reclaim space without losing metadata")
 	default:

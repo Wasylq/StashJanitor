@@ -5,6 +5,7 @@ import (
 	"regexp"
 
 	"github.com/Wasylq/StashJanitor/internal/config"
+	"github.com/Wasylq/StashJanitor/internal/stash"
 	"github.com/Wasylq/StashJanitor/internal/store"
 )
 
@@ -144,6 +145,76 @@ func ruleFilePathPriority(s *FileScorer, a, b *store.FileGroupFile) int {
 // RFC3339 timestamps which sort correctly as strings, so this is a tiny
 // optimization over parsing them. Newer = bigger string = wins.
 func ruleModTime(_ *FileScorer, a, b *store.FileGroupFile) int {
+	switch {
+	case a.ModTime > b.ModTime:
+		return 1
+	case a.ModTime < b.ModTime:
+		return -1
+	default:
+		return 0
+	}
+}
+
+// PickPostMergeKeeper picks the best file from a multi-file scene that
+// resulted from a sceneMerge.
+//
+// Unlike the main DecideFiles path (which assumes byte-equivalent files
+// because Stash matches workflow B's multi-files by oshash/md5), the files
+// after a cross-scene sceneMerge come from previously-separate scenes and
+// have *different* tech specs. Picking by filename alone would silently
+// lose quality, so this method uses a fixed rule chain that prioritizes
+// quality first, then filename quality:
+//
+//	1. resolution     (width × height — higher wins)
+//	2. bitrate        (higher wins)
+//	3. filename_quality (regex match — true wins)
+//	4. file_size      (larger wins, tiebreaker)
+//	5. mod_time       (newer wins, last-resort tiebreaker)
+//
+// This rule chain is intentionally NOT configurable in Phase 1 — there
+// is exactly one sensible policy for picking the best of N different
+// files. We can revisit if anyone has a strong opinion.
+//
+// Returns the index into files plus an empty string on success, or
+// (-1, reason) when every rule ties. files must be non-empty.
+func (s *FileScorer) PickPostMergeKeeper(files []stash.VideoFile) (int, string) {
+	switch len(files) {
+	case 0:
+		return -1, "no files"
+	case 1:
+		return 0, ""
+	}
+
+	best := 0
+	for i := 1; i < len(files); i++ {
+		if s.comparePostMerge(&files[i], &files[best]) > 0 {
+			best = i
+		}
+	}
+	for i := range files {
+		if i == best {
+			continue
+		}
+		if s.comparePostMerge(&files[best], &files[i]) == 0 {
+			return -1, fmt.Sprintf("post-merge: files %s and %s tied on every rule", files[best].ID, files[i].ID)
+		}
+	}
+	return best, ""
+}
+
+func (s *FileScorer) comparePostMerge(a, b *stash.VideoFile) int {
+	if c := cmpInt(a.Width*a.Height, b.Width*b.Height); c != 0 {
+		return c
+	}
+	if c := cmpInt(a.BitRate, b.BitRate); c != 0 {
+		return c
+	}
+	if c := cmpInt(s.ClassifyFilename(a.Basename), s.ClassifyFilename(b.Basename)); c != 0 {
+		return c
+	}
+	if c := cmpInt64(a.Size, b.Size); c != 0 {
+		return c
+	}
 	switch {
 	case a.ModTime > b.ModTime:
 		return 1
