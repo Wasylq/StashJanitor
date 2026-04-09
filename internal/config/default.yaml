@@ -53,12 +53,21 @@ scoring:
       - path_priority
       - mod_time            # newer wins (tiebreaker)
     filename_quality:
-      # Default matches: YYYY-MM-DD_<anything>_<resolution>.<ext>
+      # Default matches: YYYY-MM-DD_<anything>_<resolution>[_N].<ext>
       # The pattern intentionally does NOT try to parse the structure — it
       # just matches the shape. Filenames where performers are omitted (e.g.
       # `2023-10-24_-Group.Title_1080p.mp4`) still match because `.+` is
-      # permissive. Tweak per library if needed.
-      pattern: '^\d{4}[-._]\d{2}[-._]\d{2}_.+_(480|540|720|1080|1440|2160|4k)p?\.[A-Za-z0-9]+$'
+      # permissive.
+      #
+      # Resolution alternation covers numeric tokens (480/540/720/1080/1440/
+      # 2160/2880/4320) and the "Nk/NK" shorthand for 2K/4K/6K/8K.
+      #
+      # The optional `(_\d+)?` trailing the resolution handles duplicate-
+      # import suffixes Stash adds (e.g. `_1080p_1.mp4`, `_4k_2.mp4`) so
+      # the safety net doesn't false-positive on them.
+      #
+      # Tweak per library if needed.
+      pattern: '^\d{4}[-._]\d{2}[-._]\d{2}_.+_(480|540|720|1080|1440|2160|2880|4320|[2468][kK])p?(_\d+)?\.[A-Za-z0-9]+$'
 
   # Earlier in the list = more preferred. Used by the codec_preference rule.
   codec_priority:

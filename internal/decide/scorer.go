@@ -13,6 +13,7 @@ package decide
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/Wasylq/StashJanitor/internal/config"
@@ -37,6 +38,13 @@ type SceneScorer struct {
 	codecRank                   map[string]int // lower = better
 	pathPriority                []string
 	flagMetadataQualityConflict bool
+	// filenameRegex is shared with FileScorer (compiled from
+	// cfg.Scoring.Files.FilenameQuality.Pattern). The scene scorer does
+	// NOT use it as a ranking rule — workflow A scoring stays driven by
+	// the cfg.Scoring.Scenes.Rules chain — but it exposes ClassifyFilename
+	// so the scan code can populate the FilenameQuality snapshot field
+	// and run the "filename info loss" safety net.
+	filenameRegex *regexp.Regexp
 }
 
 // NewSceneScorer compiles the rule chain from config. Returns an error if
@@ -47,6 +55,13 @@ func NewSceneScorer(cfg *config.Config) (*SceneScorer, error) {
 		codecRank:                   buildCodecRank(cfg.Scoring.CodecPriority),
 		pathPriority:                cfg.Scoring.PathPriority,
 		flagMetadataQualityConflict: cfg.ReviewPolicy.FlagMetadataQualityConflict,
+	}
+	if pat := cfg.Scoring.Files.FilenameQuality.Pattern; pat != "" {
+		re, err := regexp.Compile(pat)
+		if err != nil {
+			return nil, fmt.Errorf("scoring.files.filename_quality.pattern: %w", err)
+		}
+		s.filenameRegex = re
 	}
 	for _, name := range cfg.Scoring.Scenes.Rules {
 		rule, err := makeSceneRule(name)
@@ -59,6 +74,19 @@ func NewSceneScorer(cfg *config.Config) (*SceneScorer, error) {
 		return nil, fmt.Errorf("scoring.scenes.rules: no rules configured")
 	}
 	return s, nil
+}
+
+// ClassifyFilename returns 1 if basename matches the configured filename
+// quality regex, 0 otherwise. Same semantics as FileScorer.ClassifyFilename
+// — both scorers compile the same regex from the same config field.
+func (s *SceneScorer) ClassifyFilename(basename string) int {
+	if s.filenameRegex == nil {
+		return 0
+	}
+	if s.filenameRegex.MatchString(basename) {
+		return 1
+	}
+	return 0
 }
 
 // DecideScenes scores a duplicate group and picks the keeper.

@@ -207,7 +207,7 @@ func PrintScenesReport(w io.Writer, groups []*store.SceneGroup) error {
 				codecOrDash(s.Codec),
 				confirm.HumanBytes(s.FileSize),
 				flagSummary(s),
-				abbreviatePath(s.PrimaryPath, 60),
+				s.PrimaryPath,
 			)
 		}
 		if loserBytes > 0 {
@@ -252,17 +252,4 @@ func codecOrDash(c string) string {
 		return "-"
 	}
 	return c
-}
-
-// abbreviatePath shortens path to fit width by replacing the middle with
-// "...". Useful so the per-group report doesn't wrap on long /sorted/ paths.
-func abbreviatePath(p string, width int) string {
-	if len(p) <= width {
-		return p
-	}
-	if width < 8 {
-		return p[:width]
-	}
-	half := (width - 3) / 2
-	return p[:half] + "..." + p[len(p)-(width-3-half):]
 }

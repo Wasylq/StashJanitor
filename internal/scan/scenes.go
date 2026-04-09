@@ -145,7 +145,7 @@ func processSceneGroup(
 	// data the report shows is what the decider used.
 	scenes := make([]store.SceneGroupScene, len(raw))
 	for i := range raw {
-		scenes[i] = sceneSnapshot(&raw[i])
+		scenes[i] = sceneSnapshot(&raw[i], scorer)
 	}
 
 	// Look up any persistent user override for this group. Stable signature
@@ -201,6 +201,20 @@ func processSceneGroup(
 			keeperIdx = decision.KeeperIndex
 		}
 
+		// Safety net: don't auto-decide cases where the keeper has a junk
+		// filename but a loser has a structured filename matching the
+		// user's convention. The structured filename encodes information
+		// (date, performer, title) that exists nowhere else in Stash; if
+		// we merged and deleted the loser, that information would be lost
+		// forever. Mark needs_review and let the user resolve manually
+		// (until Phase 2 ships the rename-on-merge feature).
+		if status == store.StatusDecided {
+			if reviewReason := detectFilenameInfoLoss(scenes, keeperIdx); reviewReason != "" {
+				status = store.StatusNeedsReview
+				reason = reviewReason
+			}
+		}
+
 		// Assign roles based on the chosen keeper. needs_review groups get
 		// every scene marked undecided so the apply step can recognize
 		// they shouldn't be touched.
@@ -254,7 +268,7 @@ func processSceneGroup(
 // sceneSnapshot converts a stash.Scene into the store snapshot we score
 // against. The "primary" file is used as the source of tech specs because
 // that's what Stash itself displays — see PLAN.md section 7.
-func sceneSnapshot(s *stash.Scene) store.SceneGroupScene {
+func sceneSnapshot(s *stash.Scene, scorer *decide.SceneScorer) store.SceneGroupScene {
 	out := store.SceneGroupScene{
 		SceneID:        s.ID,
 		Role:           store.RoleUndecided,
@@ -272,6 +286,34 @@ func sceneSnapshot(s *stash.Scene) store.SceneGroupScene {
 		out.FileSize = pf.Size
 		out.Duration = pf.Duration
 		out.PrimaryPath = pf.Path
+		out.FilenameQuality = scorer.ClassifyFilename(pf.Basename)
 	}
 	return out
+}
+
+// detectFilenameInfoLoss returns a non-empty reason when the chosen keeper
+// has FilenameQuality=0 but at least one loser has FilenameQuality=1. The
+// loser's filename encodes information (date, performer, title per the
+// user's convention) that exists nowhere else in Stash, so deleting that
+// loser would silently lose data.
+//
+// Returns "" when the keeper either matches the regex itself or no loser
+// does — both safe cases.
+func detectFilenameInfoLoss(scenes []store.SceneGroupScene, keeperIdx int) string {
+	keeper := &scenes[keeperIdx]
+	if keeper.FilenameQuality == 1 {
+		return ""
+	}
+	for i := range scenes {
+		if i == keeperIdx {
+			continue
+		}
+		if scenes[i].FilenameQuality == 1 {
+			return fmt.Sprintf(
+				"filename info loss risk: keeper %s has unstructured filename but loser %s has a structured one — manual review to preserve filename-encoded metadata",
+				keeper.SceneID, scenes[i].SceneID,
+			)
+		}
+	}
+	return ""
 }

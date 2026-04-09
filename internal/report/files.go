@@ -172,7 +172,7 @@ func PrintFilesReport(w io.Writer, groups []*store.FileGroup) error {
 			}
 			fmt.Fprintf(&b, "    %s %s file %-8s  %s%s\n",
 				marker, primaryFlag, f.FileID,
-				abbreviatePath(f.Path, 70),
+				f.Path,
 				fnFlag,
 			)
 		}

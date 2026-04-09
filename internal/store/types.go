@@ -28,20 +28,26 @@ type SceneGroup struct {
 
 // SceneGroupScene is one scene's snapshot within a SceneGroup.
 type SceneGroupScene struct {
-	SceneID        string  `json:"scene_id"`
-	Role           string  `json:"role"`
-	Width          int     `json:"width,omitempty"`
-	Height         int     `json:"height,omitempty"`
-	Bitrate        int     `json:"bitrate,omitempty"`
-	Framerate      float64 `json:"framerate,omitempty"`
-	Codec          string  `json:"codec,omitempty"`
-	FileSize       int64   `json:"file_size,omitempty"`
-	Duration       float64 `json:"duration,omitempty"`
-	Organized      bool    `json:"organized"`
-	HasStashID     bool    `json:"has_stash_id"`
-	TagCount       int     `json:"tag_count"`
-	PerformerCount int     `json:"performer_count"`
-	PrimaryPath    string  `json:"primary_path,omitempty"`
+	SceneID         string  `json:"scene_id"`
+	Role            string  `json:"role"`
+	Width           int     `json:"width,omitempty"`
+	Height          int     `json:"height,omitempty"`
+	Bitrate         int     `json:"bitrate,omitempty"`
+	Framerate       float64 `json:"framerate,omitempty"`
+	Codec           string  `json:"codec,omitempty"`
+	FileSize        int64   `json:"file_size,omitempty"`
+	Duration        float64 `json:"duration,omitempty"`
+	Organized       bool    `json:"organized"`
+	HasStashID      bool    `json:"has_stash_id"`
+	TagCount        int     `json:"tag_count"`
+	PerformerCount  int     `json:"performer_count"`
+	PrimaryPath     string  `json:"primary_path,omitempty"`
+	// FilenameQuality is 0/1 from running the filename_quality regex
+	// against the primary file's basename. Used by the workflow A safety
+	// net to flag groups where the keeper has a junk filename but a loser
+	// has a structured one (so deleting the loser would lose the only
+	// human-readable metadata).
+	FilenameQuality int `json:"filename_quality"`
 }
 
 // FileGroup is a workflow B multi-file scene as cached locally.

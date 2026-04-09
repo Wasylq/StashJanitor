@@ -3,6 +3,7 @@ package scan
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/Wasylq/StashJanitor/internal/config"
@@ -137,6 +138,72 @@ func TestProcessSceneGroupRespectsUserDismiss(t *testing.T) {
 	}
 	if got.Status != store.StatusDismissed {
 		t.Errorf("status = %s, want dismissed", got.Status)
+	}
+}
+
+func TestProcessSceneGroupFilenameInfoLossSafetyNet(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	sc := newTestScorer(t)
+	runID, _ := st.StartScanRun(ctx, store.WorkflowScenes, nil, nil)
+
+	// Higher-quality keeper with a junk filename, lower-quality loser with
+	// a filename matching the user's convention. By raw scoring rules the
+	// keeper would win on resolution; the safety net must override that
+	// to needs_review so the structured filename info isn't lost.
+	raw := []stash.Scene{
+		// Junk filename, higher resolution, no metadata.
+		makeScene("99", false, 3840, 2160, 8_000_000, "h264", 5_000_000_000,
+			"/data/tmp3/Spying-on-Mom-Get-s-you-Milked.mp4", false, 0),
+		// Structured filename, lower resolution, no metadata.
+		makeScene("100", false, 1920, 1080, 4_000_000, "h264", 2_000_000_000,
+			"/data/Performers/2024-12-15_Kelly.Payne-Spy.on.Mom_1080p.mp4", false, 0),
+	}
+	sig := store.SceneGroupSignature([]string{"99", "100"})
+
+	got, err := processSceneGroup(ctx, st, sc, runID, sig, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != store.StatusNeedsReview {
+		t.Errorf("status = %s, want needs_review (filename info loss safety net)", got.Status)
+	}
+
+	stored, err := st.GetSceneGroupBySignature(ctx, sig)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(stored.DecisionReason, "filename info loss") {
+		t.Errorf("expected reason to mention filename info loss, got: %q", stored.DecisionReason)
+	}
+	for _, s := range stored.Scenes {
+		if s.Role != store.RoleUndecided {
+			t.Errorf("scene %s role = %s, want undecided in needs_review", s.SceneID, s.Role)
+		}
+	}
+}
+
+func TestProcessSceneGroupNoSafetyNetWhenKeeperHasGoodFilename(t *testing.T) {
+	// Inverse: keeper has a good filename, loser has a junk one. The
+	// safety net should NOT fire — there's no info loss.
+	ctx := context.Background()
+	st := newTestStore(t)
+	sc := newTestScorer(t)
+	runID, _ := st.StartScanRun(ctx, store.WorkflowScenes, nil, nil)
+
+	raw := []stash.Scene{
+		makeScene("100", true, 1920, 1080, 4_000_000, "h264", 2_000_000_000,
+			"/data/Performers/2024-12-15_Kelly.Payne-Spy.on.Mom_1080p.mp4", true, 5),
+		makeScene("99", false, 1280, 720, 2_000_000, "h264", 1_000_000_000,
+			"/data/tmp3/random.mp4", false, 0),
+	}
+	sig := store.SceneGroupSignature([]string{"99", "100"})
+	got, err := processSceneGroup(ctx, st, sc, runID, sig, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != store.StatusDecided {
+		t.Errorf("status = %s, want decided (keeper has good filename, no info loss)", got.Status)
 	}
 }
 

@@ -151,13 +151,3 @@ func TestFilterStatusesValidation(t *testing.T) {
 	}
 }
 
-func TestAbbreviatePath(t *testing.T) {
-	in := "/very/long/library/path/to/some/sorted/scene/file.mp4"
-	out := abbreviatePath(in, 30)
-	if len(out) > 30 {
-		t.Errorf("len = %d, want <= 30", len(out))
-	}
-	if !strings.Contains(out, "...") {
-		t.Errorf("expected ellipsis in abbreviated path, got %q", out)
-	}
-}

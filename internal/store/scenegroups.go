@@ -74,12 +74,14 @@ func (s *Store) UpsertSceneGroup(ctx context.Context, g *SceneGroup) error {
 			`INSERT INTO scene_group_scenes
 			 (group_id, scene_id, role,
 			  width, height, bitrate, framerate, codec, file_size, duration,
-			  organized, has_stash_id, tag_count, performer_count, primary_path)
-			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+			  organized, has_stash_id, tag_count, performer_count, primary_path,
+			  filename_quality)
+			 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
 			g.ID, sc.SceneID, sc.Role,
 			sc.Width, sc.Height, sc.Bitrate, sc.Framerate, sc.Codec, sc.FileSize, sc.Duration,
 			boolToInt(sc.Organized), boolToInt(sc.HasStashID),
 			sc.TagCount, sc.PerformerCount, sc.PrimaryPath,
+			sc.FilenameQuality,
 		)
 		if err != nil {
 			return fmt.Errorf("inserting scene_group_scenes(%s): %w", sc.SceneID, err)
@@ -177,7 +179,8 @@ func (s *Store) loadSceneGroupScenes(ctx context.Context, g *SceneGroup) error {
 		        COALESCE(framerate,0), COALESCE(codec,''), COALESCE(file_size,0),
 		        COALESCE(duration,0),
 		        organized, has_stash_id, tag_count, performer_count,
-		        COALESCE(primary_path,'')
+		        COALESCE(primary_path,''),
+		        filename_quality
 		 FROM scene_group_scenes WHERE group_id = ?
 		 ORDER BY scene_id`,
 		g.ID,
@@ -196,6 +199,7 @@ func (s *Store) loadSceneGroupScenes(ctx context.Context, g *SceneGroup) error {
 			&sc.Framerate, &sc.Codec, &sc.FileSize, &sc.Duration,
 			&organized, &hasStashID, &sc.TagCount, &sc.PerformerCount,
 			&sc.PrimaryPath,
+			&sc.FilenameQuality,
 		); err != nil {
 			return err
 		}

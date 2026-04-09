@@ -56,6 +56,10 @@ CREATE TABLE IF NOT EXISTS scene_group_scenes (
   tag_count        INTEGER NOT NULL DEFAULT 0,
   performer_count  INTEGER NOT NULL DEFAULT 0,
   primary_path     TEXT,
+  -- 0/1 result of running the filename_quality regex against the primary
+  -- file's basename. Used by the safety net that marks groups needs_review
+  -- when only the loser has a good filename. Added in schema v2.
+  filename_quality INTEGER NOT NULL DEFAULT 0,
   PRIMARY KEY (group_id, scene_id)
 );
 

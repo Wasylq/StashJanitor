@@ -28,7 +28,13 @@ var schemaSQL string
 
 // currentSchemaVersion is the highest schema version this binary knows how
 // to apply. Bump it when you add a migration step in applySchema.
-const currentSchemaVersion = 1
+//
+// History:
+//
+//	v1 — initial Phase 1 schema
+//	v2 — added scene_group_scenes.filename_quality (filename info loss
+//	     safety net for workflow A)
+const currentSchemaVersion = 2
 
 // Status values used by both scene_groups.status and file_groups.status.
 const (
@@ -93,30 +99,60 @@ func (s *Store) DB() *sql.DB {
 	return s.db
 }
 
-// applySchema runs the embedded schema.sql idempotently and records the
-// schema version. Future migrations should switch on the recorded version
-// and apply only the missing steps.
+// applySchema runs the embedded schema.sql idempotently and applies any
+// pending version migrations.
+//
+// The contract:
+//
+//   - schema.sql always reflects the LATEST schema. Fresh databases get
+//     every column at creation time and skip migrations.
+//   - Old databases run only the migration steps strictly above their
+//     recorded version, in order, then record the new version.
+//   - A fresh database is detected by an empty schema_version table; we
+//     immediately stamp it at currentSchemaVersion and return.
 func (s *Store) applySchema(ctx context.Context) error {
 	if _, err := s.db.ExecContext(ctx, schemaSQL); err != nil {
 		return fmt.Errorf("applying schema: %w", err)
 	}
 
 	var current int
-	err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&current)
-	if err != nil {
+	if err := s.db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_version`).Scan(&current); err != nil {
 		return fmt.Errorf("reading schema_version: %w", err)
 	}
 
-	if current >= currentSchemaVersion {
+	if current == 0 {
+		// Fresh database — schema.sql created the latest tables already.
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO schema_version(version) VALUES(?)`, currentSchemaVersion); err != nil {
+			return fmt.Errorf("recording schema_version=%d: %w", currentSchemaVersion, err)
+		}
 		return nil
 	}
 
-	// Phase 1 has only schema version 1, established by schema.sql above.
-	// Future versions: insert handlers here, each gated on `current < N`.
-	if _, err := s.db.ExecContext(ctx, `INSERT INTO schema_version(version) VALUES(?)`, currentSchemaVersion); err != nil {
-		return fmt.Errorf("recording schema_version=%d: %w", currentSchemaVersion, err)
+	for v := current + 1; v <= currentSchemaVersion; v++ {
+		if err := s.applyMigration(ctx, v); err != nil {
+			return fmt.Errorf("schema migration v%d: %w", v, err)
+		}
+		if _, err := s.db.ExecContext(ctx, `INSERT INTO schema_version(version) VALUES(?)`, v); err != nil {
+			return fmt.Errorf("recording schema_version=%d: %w", v, err)
+		}
 	}
 	return nil
+}
+
+// applyMigration runs the SQL needed to bring the database from version
+// `version-1` to `version`. Each step is idempotent in spirit (if it fails
+// halfway, the next run sees the same `current` and retries the same step).
+func (s *Store) applyMigration(ctx context.Context, version int) error {
+	switch version {
+	case 2:
+		// Add filename_quality to scene_group_scenes for the workflow A
+		// "filename info loss" safety net. Default 0 so existing rows are
+		// treated as "no filename match".
+		_, err := s.db.ExecContext(ctx, `ALTER TABLE scene_group_scenes ADD COLUMN filename_quality INTEGER NOT NULL DEFAULT 0`)
+		return err
+	default:
+		return fmt.Errorf("unknown migration version %d (this is a bug)", version)
+	}
 }
 
 // nowRFC3339 returns the current UTC time in the canonical text format we
