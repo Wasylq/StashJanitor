@@ -17,6 +17,7 @@ import (
 	"strings"
 
 	"github.com/Wasylq/StashJanitor/internal/config"
+	"github.com/Wasylq/StashJanitor/internal/confirm"
 	"github.com/Wasylq/StashJanitor/internal/store"
 )
 
@@ -34,7 +35,11 @@ type Decision struct {
 // SceneScorer ranks scenes within a workflow A duplicate group per the
 // rule chain in cfg.Scoring.Scenes.Rules.
 type SceneScorer struct {
+	// rules and ruleNames are parallel slices so ExplainPick can name the
+	// rule that decided a particular comparison without changing how the
+	// existing compare/DecideScenes paths walk the chain.
 	rules                       []sceneRule
+	ruleNames                   []string
 	codecRank                   map[string]int // lower = better
 	pathPriority                []string
 	flagMetadataQualityConflict bool
@@ -55,11 +60,82 @@ func NewSceneScorer(cfg *config.Config) (*SceneScorer, error) {
 			return nil, fmt.Errorf("scoring.scenes.rules: %w", err)
 		}
 		s.rules = append(s.rules, rule)
+		s.ruleNames = append(s.ruleNames, name)
 	}
 	if len(s.rules) == 0 {
 		return nil, fmt.Errorf("scoring.scenes.rules: no rules configured")
 	}
 	return s, nil
+}
+
+// ExplainPick walks the rule chain and returns a human-readable string
+// describing the FIRST rule that decided winner > loser. Used by the
+// report to show "why was this kept?" annotations under each loser line.
+//
+// Returns an empty string when winner and loser tie on every rule
+// (shouldn't happen in a decided group, but the caller is expected to
+// no-op on empty).
+func (s *SceneScorer) ExplainPick(winner, loser *store.SceneGroupScene) string {
+	for i, rule := range s.rules {
+		switch rule(s, winner, loser) {
+		case 1:
+			return formatRuleExplanation(s.ruleNames[i], winner, loser)
+		case -1:
+			// Defensive — winner should be strictly better than loser in
+			// any decided group. If we hit this it's a bug, not user data.
+			return fmt.Sprintf("(unexpected: keeper lost on %s)", s.ruleNames[i])
+		}
+	}
+	return ""
+}
+
+// formatRuleExplanation turns a rule name + the two snapshots into a brief
+// "why" line for the report. Hardcoded per-rule because each rule has its
+// own natural value formatting.
+func formatRuleExplanation(rule string, winner, loser *store.SceneGroupScene) string {
+	switch rule {
+	case "has_stash_id":
+		return "has stash-box metadata (loser has none)"
+	case "organized":
+		return "is organized in Stash (loser is not)"
+	case "resolution":
+		return fmt.Sprintf("higher resolution: %dx%d vs %dx%d",
+			winner.Width, winner.Height, loser.Width, loser.Height)
+	case "bitrate":
+		return fmt.Sprintf("higher bitrate: %s vs %s",
+			formatBitrate(winner.Bitrate), formatBitrate(loser.Bitrate))
+	case "codec_preference":
+		return fmt.Sprintf("preferred codec: %s vs %s",
+			codecOrUnknown(winner.Codec), codecOrUnknown(loser.Codec))
+	case "file_size":
+		return fmt.Sprintf("larger file: %s vs %s",
+			confirm.HumanBytes(winner.FileSize), confirm.HumanBytes(loser.FileSize))
+	case "tag_count":
+		return fmt.Sprintf("more tags: %d vs %d", winner.TagCount, loser.TagCount)
+	case "path_priority":
+		return fmt.Sprintf("preferred path: %s vs %s", winner.PrimaryPath, loser.PrimaryPath)
+	}
+	return rule
+}
+
+func formatBitrate(bps int) string {
+	switch {
+	case bps >= 1_000_000:
+		return fmt.Sprintf("%.1f Mbps", float64(bps)/1_000_000)
+	case bps >= 1_000:
+		return fmt.Sprintf("%d kbps", bps/1_000)
+	case bps > 0:
+		return fmt.Sprintf("%d bps", bps)
+	default:
+		return "unknown"
+	}
+}
+
+func codecOrUnknown(c string) string {
+	if c == "" {
+		return "unknown"
+	}
+	return c
 }
 
 // looseDateRegex matches a YYYY-MM-DD style date anywhere in a string.

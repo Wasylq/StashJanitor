@@ -170,8 +170,15 @@ func ListScenesReport(ctx context.Context, st *store.Store, filter ScenesReportF
 	return st.ListSceneGroups(ctx, statuses)
 }
 
+// ExplainSceneFn is the callback PrintScenesReport uses to annotate each
+// loser line with the first rule that the keeper beat it on. Pass nil to
+// disable per-loser explanations entirely (e.g. in tests).
+type ExplainSceneFn func(winner, loser *store.SceneGroupScene) string
+
 // PrintScenesReport renders the groups as plain text, one block per group.
-func PrintScenesReport(w io.Writer, groups []*store.SceneGroup) error {
+// If explain is non-nil, each loser line is followed by an indented
+// "↳ kept by: <reason>" line showing why the keeper outranked it.
+func PrintScenesReport(w io.Writer, groups []*store.SceneGroup, explain ExplainSceneFn) error {
 	if len(groups) == 0 {
 		_, err := io.WriteString(w, "(no groups match the filter)\n")
 		return err
@@ -191,8 +198,19 @@ func PrintScenesReport(w io.Writer, groups []*store.SceneGroup) error {
 			fmt.Fprintf(&b, "    applied:   %s\n", g.AppliedAt.Local().Format(time.RFC3339))
 		}
 
+		// Find the keeper once per group so we can annotate each loser
+		// against it without an inner search.
+		keeperIdx := -1
+		for j := range g.Scenes {
+			if g.Scenes[j].Role == store.RoleKeeper {
+				keeperIdx = j
+				break
+			}
+		}
+
 		var loserBytes int64
-		for _, s := range g.Scenes {
+		for j := range g.Scenes {
+			s := &g.Scenes[j]
 			marker := "       "
 			switch s.Role {
 			case store.RoleKeeper:
@@ -206,9 +224,16 @@ func PrintScenesReport(w io.Writer, groups []*store.SceneGroup) error {
 				s.Width, s.Height,
 				codecOrDash(s.Codec),
 				confirm.HumanBytes(s.FileSize),
-				flagSummary(s),
+				flagSummary(*s),
 				s.PrimaryPath,
 			)
+
+			// Annotate losers with the rule that decided they lost.
+			if s.Role == store.RoleLoser && explain != nil && keeperIdx >= 0 {
+				if reason := explain(&g.Scenes[keeperIdx], s); reason != "" {
+					fmt.Fprintf(&b, "                ↳ kept by: %s\n", reason)
+				}
+			}
 		}
 		if loserBytes > 0 {
 			fmt.Fprintf(&b, "    reclaimable: %s\n", confirm.HumanBytes(loserBytes))

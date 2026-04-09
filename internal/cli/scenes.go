@@ -166,7 +166,7 @@ func runScenesStatus(cmd *cobra.Command, args []string) error {
 }
 
 func runScenesReport(cmd *cobra.Command, args []string) error {
-	_, st, _, cleanup, err := loadConfigAndStore()
+	cfg, st, _, cleanup, err := loadConfigAndStore()
 	if err != nil {
 		return err
 	}
@@ -180,7 +180,15 @@ func runScenesReport(cmd *cobra.Command, args []string) error {
 	if flagScenesReportJSON {
 		return report.PrintScenesReportJSON(out, groups)
 	}
-	return report.PrintScenesReport(out, groups)
+
+	// Build the per-loser explainer from a SceneScorer wired up with the
+	// same config the scan used. Failing to construct the scorer is not
+	// fatal — we just print without annotations.
+	var explain report.ExplainSceneFn
+	if scorer, err := decide.NewSceneScorer(cfg); err == nil {
+		explain = scorer.ExplainPick
+	}
+	return report.PrintScenesReport(out, groups, explain)
 }
 
 func runScenesApply(cmd *cobra.Command, args []string) error {

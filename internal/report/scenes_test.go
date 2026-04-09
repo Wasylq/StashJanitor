@@ -129,7 +129,7 @@ func TestPrintScenesReport(t *testing.T) {
 		},
 	}
 	buf := &bytes.Buffer{}
-	if err := PrintScenesReport(buf, groups); err != nil {
+	if err := PrintScenesReport(buf, groups, nil); err != nil {
 		t.Fatal(err)
 	}
 	out := buf.String()
@@ -139,6 +139,35 @@ func TestPrintScenesReport(t *testing.T) {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in output, got:\n%s", want, out)
 		}
+	}
+	// With nil explain, no "kept by" annotation should appear.
+	if strings.Contains(out, "kept by") {
+		t.Errorf("expected no 'kept by' lines when explain is nil, got:\n%s", out)
+	}
+}
+
+func TestPrintScenesReportWithExplain(t *testing.T) {
+	groups := []*store.SceneGroup{
+		{
+			ID:        1,
+			Signature: "17|42",
+			Status:    store.StatusDecided,
+			Scenes: []store.SceneGroupScene{
+				{SceneID: "42", Role: store.RoleKeeper, Width: 1920, Height: 1080, FileSize: 4_000_000_000, PrimaryPath: "/sorted/keep.mp4"},
+				{SceneID: "17", Role: store.RoleLoser, Width: 1920, Height: 1080, FileSize: 1_000_000_000, PrimaryPath: "/inbox/loser.mp4"},
+			},
+		},
+	}
+	explain := func(winner, loser *store.SceneGroupScene) string {
+		return "larger file (test stub)"
+	}
+	buf := &bytes.Buffer{}
+	if err := PrintScenesReport(buf, groups, explain); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	if !strings.Contains(out, "kept by: larger file (test stub)") {
+		t.Errorf("expected explain annotation under loser, got:\n%s", out)
 	}
 }
 
