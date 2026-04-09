@@ -79,6 +79,35 @@ type FileGroupFile struct {
 	FileSize        int64   `json:"file_size,omitempty"`
 }
 
+// OrphanLookup is one (scene, stash-box endpoint) pair queried via
+// scrapeMultiScenes. Workflow C populates these during scan; report and
+// apply consume them.
+type OrphanLookup struct {
+	ID             int64      `json:"id"`
+	ScanRunID      int64      `json:"scan_run_id"`
+	SceneID        string     `json:"scene_id"`
+	Endpoint       string     `json:"endpoint"`
+	Status         string     `json:"status"`
+	DecisionReason string     `json:"decision_reason,omitempty"`
+	DecidedAt      *time.Time `json:"decided_at,omitempty"`
+	AppliedAt      *time.Time `json:"applied_at,omitempty"`
+
+	// Scene snapshot at scan time so the report works offline.
+	PrimaryPath string  `json:"primary_path,omitempty"`
+	Basename    string  `json:"basename,omitempty"`
+	Duration    float64 `json:"duration,omitempty"`
+	Width       int     `json:"width,omitempty"`
+	Height      int     `json:"height,omitempty"`
+
+	// Match data, populated when stash-box returned at least one hit.
+	MatchRemoteID   string `json:"match_remote_id,omitempty"`
+	MatchTitle      string `json:"match_title,omitempty"`
+	MatchStudio     string `json:"match_studio,omitempty"`
+	MatchDate       string `json:"match_date,omitempty"`
+	MatchPerformers string `json:"match_performers,omitempty"`
+	MatchCount      int    `json:"match_count"`
+}
+
 // UserDecision is a persistent override that survives scan re-runs.
 type UserDecision struct {
 	Key       string    `json:"key"` // signature (scenes) or "scene:<id>" (files)

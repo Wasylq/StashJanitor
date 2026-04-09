@@ -123,3 +123,35 @@ CREATE TABLE IF NOT EXISTS fingerprint_submissions (
   submitted_at    TEXT NOT NULL,
   PRIMARY KEY (scene_id, endpoint)
 );
+
+-- Workflow C: orphan-scene stash-box lookups. Each row is one orphan
+-- (scene with no stash_id) checked against one stash-box endpoint via
+-- scrapeMultiScenes. Status records whether we found a match and whether
+-- we've applied it back to Stash. Added in schema v4.
+CREATE TABLE IF NOT EXISTS orphan_lookups (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_run_id     INTEGER NOT NULL REFERENCES scan_runs(id) ON DELETE CASCADE,
+  scene_id        TEXT NOT NULL,
+  endpoint        TEXT NOT NULL,
+  status          TEXT NOT NULL,        -- matched|no_match|needs_review|applied|dismissed
+  decision_reason TEXT,
+  decided_at      TEXT,
+  applied_at      TEXT,
+  -- Scene snapshot
+  primary_path    TEXT,
+  basename        TEXT,
+  duration        REAL,
+  width           INTEGER,
+  height          INTEGER,
+  -- Match data (nullable when no_match)
+  match_remote_id  TEXT,
+  match_title      TEXT,
+  match_studio     TEXT,
+  match_date       TEXT,
+  match_performers TEXT,
+  match_count      INTEGER NOT NULL DEFAULT 0,
+  UNIQUE(scan_run_id, scene_id, endpoint)
+);
+
+CREATE INDEX IF NOT EXISTS idx_orphan_lookups_status   ON orphan_lookups(status);
+CREATE INDEX IF NOT EXISTS idx_orphan_lookups_scene    ON orphan_lookups(scene_id, endpoint);

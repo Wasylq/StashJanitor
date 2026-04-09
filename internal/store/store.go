@@ -35,7 +35,9 @@ var schemaSQL string
 //	v2 — added scene_group_scenes.filename_quality (filename info loss
 //	     safety net for workflow A)
 //	v3 — added fingerprint_submissions table (--submit-fingerprints)
-const currentSchemaVersion = 3
+//	v4 — added orphan_lookups table (Phase 3 workflow C: stash-box phash
+//	     lookup for scenes with no stash_id)
+const currentSchemaVersion = 4
 
 // Status values used by both scene_groups.status and file_groups.status.
 const (
@@ -55,8 +57,17 @@ const (
 
 // Workflow tags used in scan_runs.workflow and user_decisions.workflow.
 const (
-	WorkflowScenes = "scenes"
-	WorkflowFiles  = "files"
+	WorkflowScenes  = "scenes"
+	WorkflowFiles   = "files"
+	WorkflowOrphans = "orphans"
+)
+
+// Status values for orphan_lookups specifically. Re-uses the generic
+// StatusApplied / StatusDismissed / StatusNeedsReview but adds two
+// orphan-specific ones.
+const (
+	StatusMatched = "matched"
+	StatusNoMatch = "no_match"
 )
 
 // Store wraps a database/sql connection to a SQLite file. Safe for
@@ -162,6 +173,42 @@ func (s *Store) applyMigration(ctx context.Context, version int) error {
 			PRIMARY KEY (scene_id, endpoint)
 		)`)
 		return err
+	case 4:
+		// Add orphan_lookups table for the workflow C orphan stash-box
+		// lookup. The single CREATE TABLE statement creates the latest
+		// shape; idx_ creations follow.
+		stmts := []string{
+			`CREATE TABLE IF NOT EXISTS orphan_lookups (
+				id               INTEGER PRIMARY KEY AUTOINCREMENT,
+				scan_run_id      INTEGER NOT NULL REFERENCES scan_runs(id) ON DELETE CASCADE,
+				scene_id         TEXT NOT NULL,
+				endpoint         TEXT NOT NULL,
+				status           TEXT NOT NULL,
+				decision_reason  TEXT,
+				decided_at       TEXT,
+				applied_at       TEXT,
+				primary_path     TEXT,
+				basename         TEXT,
+				duration         REAL,
+				width            INTEGER,
+				height           INTEGER,
+				match_remote_id  TEXT,
+				match_title      TEXT,
+				match_studio     TEXT,
+				match_date       TEXT,
+				match_performers TEXT,
+				match_count      INTEGER NOT NULL DEFAULT 0,
+				UNIQUE(scan_run_id, scene_id, endpoint)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_orphan_lookups_status ON orphan_lookups(status)`,
+			`CREATE INDEX IF NOT EXISTS idx_orphan_lookups_scene  ON orphan_lookups(scene_id, endpoint)`,
+		}
+		for _, stmt := range stmts {
+			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+				return err
+			}
+		}
+		return nil
 	default:
 		return fmt.Errorf("unknown migration version %d (this is a bug)", version)
 	}

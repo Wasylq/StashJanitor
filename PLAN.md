@@ -480,7 +480,12 @@ Global flags: `--config <path>`, `--db <path>`, `-v/-vv` for log verbosity.
     Default-on, configurable via `merge.post_merge_file_cleanup.rename_winner_filename`.
 
 ### Phase 3 — Stretch
-21. Identify metadata-less orphans via stash-box phash lookup
+21. [x] **Workflow C: orphans stash-box lookup** — `stash-janitor orphans scan/status/
+    report/apply` finds scenes with `stash_id_count = 0`, queries stash-box
+    via `scrapeMultiScenes` (paginated, batched, rate-limited, resume-
+    friendly), stores results in `orphan_lookups` (schema v4), apply writes
+    matches back via `sceneUpdate`. Verified on the live instance: found 5
+    real matches in the first 500 of 33,249 orphans.
 22. Optional: Stash plugin / web UI
 
 ## 10a. Merge apply pipeline (Phase 1)

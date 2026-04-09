@@ -442,10 +442,138 @@ func (c *Client) SubmitStashBoxFingerprints(ctx context.Context, sceneIDs []stri
 }
 
 // ============================================================================
-// Diagnostics
+// Workflow C: orphan stash-box lookup
+// ============================================================================
+
+const findOrphanScenesQuery = sceneFieldsFragment + `
+query FindOrphanScenes($page: Int!, $per_page: Int!) {
+  findScenes(
+    filter: { page: $page, per_page: $per_page, sort: "id", direction: ASC }
+    scene_filter: { stash_id_count: { value: 0, modifier: EQUALS } }
+  ) {
+    count
+    scenes { ...SceneFields }
+  }
+}
+`
+
+// FindOrphanScenesPage returns one page of scenes that have no stash_ids
+// attached. Used by `stash-janitor orphans scan` to enumerate orphans before
+// querying stash-box.
+func (c *Client) FindOrphanScenesPage(ctx context.Context, page, perPage int) (*FindScenesResult, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 100
+	}
+	var resp struct {
+		FindScenes FindScenesResult `json:"findScenes"`
+	}
+	vars := map[string]any{"page": page, "per_page": perPage}
+	if err := c.Execute(ctx, findOrphanScenesQuery, vars, &resp); err != nil {
+		return nil, fmt.Errorf("findOrphanScenes(page=%d): %w", page, err)
+	}
+	return &resp.FindScenes, nil
+}
+
+const scrapeMultiScenesQuery = `
+query ScrapeMultiScenes($endpoint: String!, $scene_ids: [ID!]!) {
+  scrapeMultiScenes(
+    source: { stash_box_endpoint: $endpoint }
+    input:  { scene_ids: $scene_ids }
+  ) {
+    remote_site_id
+    title
+    date
+    urls
+    studio { name remote_site_id }
+    performers { name remote_site_id }
+  }
+}
+`
+
+// ScrapeMultiScenes asks Stash to query a stash-box endpoint for matches
+// to the given scene_ids by their fingerprints. Returns a slice of slices
+// parallel to scene_ids — each inner slice is the matches stash-box
+// returned for that scene (empty when no match).
+//
+// Stash internally throttles per the configured `max_requests_per_minute`,
+// so the caller can fire batches as fast as they like and Stash will
+// queue.
+func (c *Client) ScrapeMultiScenes(ctx context.Context, endpoint string, sceneIDs []string) ([][]ScrapedScene, error) {
+	if endpoint == "" {
+		return nil, errors.New("ScrapeMultiScenes: endpoint is required")
+	}
+	if len(sceneIDs) == 0 {
+		return nil, nil
+	}
+	var resp struct {
+		ScrapeMultiScenes [][]ScrapedScene `json:"scrapeMultiScenes"`
+	}
+	vars := map[string]any{
+		"endpoint":  endpoint,
+		"scene_ids": sceneIDs,
+	}
+	if err := c.Execute(ctx, scrapeMultiScenesQuery, vars, &resp); err != nil {
+		return nil, fmt.Errorf("scrapeMultiScenes: %w", err)
+	}
+	return resp.ScrapeMultiScenes, nil
+}
+
+const setSceneStashIDsMutation = `
+mutation SetSceneStashIDs($id: ID!, $stash_ids: [StashIDInput!]!) {
+  sceneUpdate(input: { id: $id, stash_ids: $stash_ids }) {
+    id
+  }
+}
+`
+
+// SetSceneStashIDs replaces a scene's stash_ids list. Used by
+// `stash-janitor orphans apply` to write a stash-box match back to Stash.
+//
+// Note: this REPLACES the list. If the scene already has stash_ids for
+// other endpoints, the caller is responsible for unioning them in.
+func (c *Client) SetSceneStashIDs(ctx context.Context, sceneID string, stashIDs []StashIDInput) error {
+	vars := map[string]any{
+		"id":        sceneID,
+		"stash_ids": stashIDs,
+	}
+	return c.Execute(ctx, setSceneStashIDsMutation, vars, nil)
+}
+
+// ============================================================================
+// Diagnostics & configuration discovery
 // ============================================================================
 
 const versionQuery = `{ version { version build_time } }`
+
+const configurationStashBoxesQuery = `
+{
+  configuration {
+    general {
+      stashBoxes { endpoint name }
+    }
+  }
+}
+`
+
+// StashBoxes returns the list of stash-box endpoints currently configured
+// in Stash's general settings. Used by `stash-janitor orphans scan` to discover
+// which endpoint(s) to query when the user hasn't passed --endpoint.
+func (c *Client) StashBoxes(ctx context.Context) ([]StashBoxConfig, error) {
+	var resp struct {
+		Configuration struct {
+			General struct {
+				StashBoxes []StashBoxConfig `json:"stashBoxes"`
+			} `json:"general"`
+		} `json:"configuration"`
+	}
+	if err := c.Execute(ctx, configurationStashBoxesQuery, nil, &resp); err != nil {
+		return nil, fmt.Errorf("configuration: %w", err)
+	}
+	return resp.Configuration.General.StashBoxes, nil
+}
 
 // Version returns Stash's version info. Used for connectivity smoke tests
 // and to record the schema version stash-janitor was talking to in scan_runs.

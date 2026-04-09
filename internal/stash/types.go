@@ -127,6 +127,37 @@ type FindTagsResult struct {
 	Tags  []Tag `json:"tags"`
 }
 
+// StashBoxConfig is one entry from configuration.general.stashBoxes —
+// the list of stash-box endpoints the user has configured in Stash.
+type StashBoxConfig struct {
+	Endpoint string `json:"endpoint"`
+	Name     string `json:"name"`
+}
+
+// ScrapedScene mirrors Stash's ScrapedScene type, the result of a
+// scrapeMultiScenes / scrapeSingleScene call. We only carry the fields the
+// orphans report needs.
+type ScrapedScene struct {
+	RemoteSiteID string             `json:"remote_site_id"`
+	Title        string             `json:"title"`
+	Date         string             `json:"date"`
+	URLs         []string           `json:"urls"`
+	Studio       *ScrapedStudio     `json:"studio"`
+	Performers   []ScrapedPerformer `json:"performers"`
+}
+
+// ScrapedStudio is the studio sub-object on a ScrapedScene.
+type ScrapedStudio struct {
+	Name         string `json:"name"`
+	RemoteSiteID string `json:"remote_site_id"`
+}
+
+// ScrapedPerformer is one entry in ScrapedScene.Performers.
+type ScrapedPerformer struct {
+	Name         string `json:"name"`
+	RemoteSiteID string `json:"remote_site_id"`
+}
+
 // CriterionModifier mirrors the GraphQL enum used in scene filters.
 type CriterionModifier string
 
