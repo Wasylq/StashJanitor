@@ -34,7 +34,8 @@ var schemaSQL string
 //	v1 — initial Phase 1 schema
 //	v2 — added scene_group_scenes.filename_quality (filename info loss
 //	     safety net for workflow A)
-const currentSchemaVersion = 2
+//	v3 — added fingerprint_submissions table (--submit-fingerprints)
+const currentSchemaVersion = 3
 
 // Status values used by both scene_groups.status and file_groups.status.
 const (
@@ -149,6 +150,17 @@ func (s *Store) applyMigration(ctx context.Context, version int) error {
 		// "filename info loss" safety net. Default 0 so existing rows are
 		// treated as "no filename match".
 		_, err := s.db.ExecContext(ctx, `ALTER TABLE scene_group_scenes ADD COLUMN filename_quality INTEGER NOT NULL DEFAULT 0`)
+		return err
+	case 3:
+		// Add fingerprint_submissions table for the --submit-fingerprints
+		// flag. Tracks (scene_id, stash-box endpoint) pairs so re-runs
+		// don't double-submit.
+		_, err := s.db.ExecContext(ctx, `CREATE TABLE IF NOT EXISTS fingerprint_submissions (
+			scene_id     TEXT NOT NULL,
+			endpoint     TEXT NOT NULL,
+			submitted_at TEXT NOT NULL,
+			PRIMARY KEY (scene_id, endpoint)
+		)`)
 		return err
 	default:
 		return fmt.Errorf("unknown migration version %d (this is a bug)", version)

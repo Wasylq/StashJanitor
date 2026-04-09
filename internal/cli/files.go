@@ -3,11 +3,14 @@ package cli
 import (
 	"context"
 	"fmt"
+	"os"
 
 	"github.com/Wasylq/StashJanitor/internal/apply"
+	"github.com/Wasylq/StashJanitor/internal/confirm"
 	"github.com/Wasylq/StashJanitor/internal/decide"
 	"github.com/Wasylq/StashJanitor/internal/report"
 	"github.com/Wasylq/StashJanitor/internal/scan"
+	"github.com/Wasylq/StashJanitor/internal/store"
 	"github.com/spf13/cobra"
 )
 
@@ -20,8 +23,13 @@ var (
 	flagFilesReportFilter string
 	flagFilesReportJSON   bool
 
-	flagFilesApplyCommit bool
-	flagFilesApplyYes    bool
+	flagFilesApplyCommit       bool
+	flagFilesApplyYes          bool
+	flagFilesApplySubmitFprint bool
+
+	flagFilesMarkSceneID string
+	flagFilesMarkAs      string
+	flagFilesMarkNotes   string
 )
 
 // newFilesCmd builds the `stash-janitor files` subcommand tree (workflow B).
@@ -81,16 +89,29 @@ lands in Phase 1.5.`,
 		Short: "Phase 1: report-only. Phase 1.5 will add --commit (sceneUpdate + deleteFiles).",
 		RunE:  runFilesApply,
 	}
-	applyCmd.Flags().BoolVar(&flagFilesApplyCommit, "commit", false, "actually mutate Stash (Phase 1.5 only)")
+	applyCmd.Flags().BoolVar(&flagFilesApplyCommit, "commit", false, "actually mutate Stash (deletes loser files from disk)")
 	applyCmd.Flags().BoolVar(&flagFilesApplyYes, "yes", false, "bypass interactive YES prompt for --commit")
+	applyCmd.Flags().BoolVar(&flagFilesApplySubmitFprint, "submit-fingerprints", false, "after a successful --commit, submit keeper-scene fingerprints to stash-box endpoints")
 
-	mark := &cobra.Command{
+	markCmd := &cobra.Command{
 		Use:   "mark",
-		Short: "Persist a manual override for a multi-file scene (Phase 1.5)",
-		RunE:  stub("files mark"),
-	}
+		Short: "Persist a manual override for a multi-file scene",
+		Long: `Persist a decision about a multi-file scene that survives across scan
+re-runs. Stored locally in stash-janitor.sqlite, keyed by the scene ID.
 
-	cmd.AddCommand(scanCmd, statusCmd, reportCmd, applyCmd, mark)
+Decisions:
+  keep_all   Don't ever propose pruning this scene's files. Future scans
+             mark it dismissed and skip it during apply.
+  dismiss    Same effect as keep_all but with a different label.
+
+Use 'stash-janitor files report' to find the scene ID you want to mark.`,
+		RunE: runFilesMark,
+	}
+	markCmd.Flags().StringVar(&flagFilesMarkSceneID, "scene-id", "", "Stash scene ID")
+	markCmd.Flags().StringVar(&flagFilesMarkAs, "as", "", "decision to record: keep_all|dismiss")
+	markCmd.Flags().StringVar(&flagFilesMarkNotes, "notes", "", "optional free-form notes saved with the decision")
+
+	cmd.AddCommand(scanCmd, statusCmd, reportCmd, applyCmd, markCmd)
 	return cmd
 }
 
@@ -161,19 +182,100 @@ func runFilesReport(cmd *cobra.Command, args []string) error {
 }
 
 func runFilesApply(cmd *cobra.Command, args []string) error {
+	_, st, client, cleanup, err := loadConfigAndStore()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	out := cmd.OutOrStdout()
+
+	plan, err := apply.PlanFiles(ctx, st)
+	if err != nil {
+		return err
+	}
+	if err := apply.PrintFilesPlan(out, plan, flagFilesApplyCommit); err != nil {
+		return err
+	}
+	if !flagFilesApplyCommit {
+		return nil
+	}
+	if len(plan.Actions) == 0 {
+		return nil
+	}
+
+	// Destructive (deletes files from disk via Stash). Always gate behind
+	// interactive YES (or --yes).
+	loserCount := 0
+	for _, a := range plan.Actions {
+		loserCount += len(a.LoserFileIDs)
+	}
+	summary := confirm.Summary{
+		Action:           "delete files",
+		GroupCount:       len(plan.Actions),
+		SceneCount:       loserCount, // number of files that will be deleted
+		ReclaimableBytes: plan.TotalReclaimable,
+	}
+	ok, err := confirm.PromptYES(os.Stdin, out, summary, flagFilesApplyYes)
+	if err != nil {
+		return err
+	}
+	if !ok {
+		return nil
+	}
+
+	reports, err := apply.ExecuteFiles(ctx, client, st, plan)
+	if err != nil {
+		return err
+	}
+	if err := apply.PrintFilesReports(out, reports); err != nil {
+		return err
+	}
+	if flagFilesApplySubmitFprint {
+		keeperIDs := make([]string, 0, len(reports))
+		for _, r := range reports {
+			if r.Status == "success" && r.SceneID != "" {
+				keeperIDs = append(keeperIDs, r.SceneID)
+			}
+		}
+		if err := submitFingerprintsForScenePlan(ctx, client, st, out, keeperIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func runFilesMark(cmd *cobra.Command, args []string) error {
+	if flagFilesMarkSceneID == "" {
+		return fmt.Errorf("--scene-id is required (run `stash-janitor files report` to find one)")
+	}
+	switch flagFilesMarkAs {
+	case "keep_all", "dismiss":
+	case "":
+		return fmt.Errorf("--as is required (one of: keep_all|dismiss)")
+	default:
+		return fmt.Errorf("unknown --as %q (try: keep_all|dismiss)", flagFilesMarkAs)
+	}
+
 	_, st, _, cleanup, err := loadConfigAndStore()
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
-	if flagFilesApplyCommit {
-		return fmt.Errorf("files apply --commit is not implemented yet (Phase 1.5)")
+	d := store.UserDecision{
+		Key:      "scene:" + flagFilesMarkSceneID,
+		Workflow: store.WorkflowFiles,
+		Decision: flagFilesMarkAs,
+		Notes:    flagFilesMarkNotes,
 	}
-
-	plan, err := apply.PlanFiles(context.Background(), st)
-	if err != nil {
+	if err := st.PutUserDecision(context.Background(), d); err != nil {
 		return err
 	}
-	return apply.PrintFilesPlan(cmd.OutOrStdout(), plan, false)
+	fmt.Fprintf(cmd.OutOrStdout(),
+		"recorded: scene=%s decision=%s\nThis override applies to future `stash-janitor files scan` runs.\n",
+		flagFilesMarkSceneID, flagFilesMarkAs,
+	)
+	return nil
 }

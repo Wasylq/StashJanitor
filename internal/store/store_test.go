@@ -350,6 +350,37 @@ func TestMarkSceneGroupApplied(t *testing.T) {
 	}
 }
 
+func TestFingerprintSubmissions(t *testing.T) {
+	ctx := context.Background()
+	s := newTestStore(t)
+
+	// Initially nothing is submitted.
+	if has, err := s.HasSubmittedFingerprints(ctx, "42", "https://stashdb.org"); err != nil || has {
+		t.Errorf("HasSubmittedFingerprints empty store: has=%v err=%v", has, err)
+	}
+
+	// Record one.
+	if err := s.RecordFingerprintSubmission(ctx, "42", "https://stashdb.org"); err != nil {
+		t.Fatal(err)
+	}
+	if has, err := s.HasSubmittedFingerprints(ctx, "42", "https://stashdb.org"); err != nil || !has {
+		t.Errorf("after record: has=%v err=%v, want has=true", has, err)
+	}
+	// Different scene → not yet submitted.
+	if has, _ := s.HasSubmittedFingerprints(ctx, "43", "https://stashdb.org"); has {
+		t.Error("scene 43 should NOT be marked submitted")
+	}
+	// Different endpoint → not yet submitted.
+	if has, _ := s.HasSubmittedFingerprints(ctx, "42", "https://fansdb.cc"); has {
+		t.Error("(42, fansdb) should NOT be marked submitted")
+	}
+
+	// Re-recording the same pair must be a no-op (no error, idempotent).
+	if err := s.RecordFingerprintSubmission(ctx, "42", "https://stashdb.org"); err != nil {
+		t.Errorf("re-record should be idempotent, got %v", err)
+	}
+}
+
 func TestLatestScanRun(t *testing.T) {
 	ctx := context.Background()
 	s := newTestStore(t)

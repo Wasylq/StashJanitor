@@ -159,6 +159,126 @@ func TestPrintTagPlanDryRunMessage(t *testing.T) {
 	}
 }
 
+// TestPlanFilesAndPrint covers the report-only path of files apply.
+func TestPlanFilesPicksLosersAndKeeperSwap(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	runID, _ := st.StartScanRun(ctx, store.WorkflowFiles, nil, nil)
+
+	// Scene with the keeper NOT being the current primary → swap.
+	fg := &store.FileGroup{
+		ScanRunID: runID,
+		SceneID:   "999",
+		Status:    store.StatusDecided,
+		Files: []store.FileGroupFile{
+			{FileID: "100", Role: store.RoleLoser, IsPrimary: true, FileSize: 800_000_000, Path: "/old/junk.mp4"},
+			{FileID: "101", Role: store.RoleKeeper, IsPrimary: false, FileSize: 800_000_000, Path: "/new/2024-01-15_Good_1080p.mp4"},
+		},
+	}
+	if err := st.UpsertFileGroup(ctx, fg); err != nil {
+		t.Fatal(err)
+	}
+
+	plan, err := PlanFiles(ctx, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Actions) != 1 {
+		t.Fatalf("len(actions) = %d, want 1", len(plan.Actions))
+	}
+	a := plan.Actions[0]
+	if a.NewPrimaryFile != "101" {
+		t.Errorf("NewPrimaryFile = %s, want 101", a.NewPrimaryFile)
+	}
+	if a.WasPrimary {
+		t.Error("WasPrimary should be false (the keeper wasn't primary at scan time)")
+	}
+	if len(a.LoserFileIDs) != 1 || a.LoserFileIDs[0] != "100" {
+		t.Errorf("LoserFileIDs = %v, want [100]", a.LoserFileIDs)
+	}
+	if a.LoserBytes != 800_000_000 {
+		t.Errorf("LoserBytes = %d, want 800000000", a.LoserBytes)
+	}
+}
+
+func TestPlanFilesKeeperAlreadyPrimary(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	runID, _ := st.StartScanRun(ctx, store.WorkflowFiles, nil, nil)
+
+	fg := &store.FileGroup{
+		ScanRunID: runID,
+		SceneID:   "999",
+		Status:    store.StatusDecided,
+		Files: []store.FileGroupFile{
+			{FileID: "100", Role: store.RoleKeeper, IsPrimary: true, FileSize: 800_000_000, Path: "/good/2024.mp4"},
+			{FileID: "101", Role: store.RoleLoser, IsPrimary: false, FileSize: 800_000_000, Path: "/inbox/dup.mp4"},
+		},
+	}
+	if err := st.UpsertFileGroup(ctx, fg); err != nil {
+		t.Fatal(err)
+	}
+	plan, _ := PlanFiles(ctx, st)
+	if !plan.Actions[0].WasPrimary {
+		t.Error("WasPrimary should be true (no swap needed)")
+	}
+}
+
+func TestPrintFilesPlanCommitVsDryRun(t *testing.T) {
+	plan := &FilesPlan{
+		Groups: []*store.FileGroup{{ID: 1}},
+		Actions: []FilesPlanAction{
+			{
+				SceneID:        "999",
+				NewPrimaryFile: "101",
+				NewPrimaryPath: "/sorted/keeper.mp4",
+				LoserFileIDs:   []string{"100"},
+				LoserPaths:     []string{"/inbox/loser.mp4"},
+				LoserBytes:     1_500_000_000,
+			},
+		},
+		TotalReclaimable: 1_500_000_000,
+	}
+	buf := &bytes.Buffer{}
+	if err := PrintFilesPlan(buf, plan, false); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "DRY RUN") {
+		t.Errorf("expected DRY RUN marker, got:\n%s", buf.String())
+	}
+	if !strings.Contains(buf.String(), "interactive YES") {
+		t.Errorf("expected interactive YES hint in dry-run output")
+	}
+
+	buf.Reset()
+	if err := PrintFilesPlan(buf, plan, true); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(buf.String(), "COMMIT") {
+		t.Errorf("expected COMMIT marker, got:\n%s", buf.String())
+	}
+	if strings.Contains(buf.String(), "DRY RUN") {
+		t.Errorf("commit-mode output shouldn't say DRY RUN")
+	}
+}
+
+func TestPrintFilesReports(t *testing.T) {
+	reports := []*FilesReport{
+		{SceneID: "1", Status: "success", BytesReclaimed: 1_500_000_000, FilesDeletedCount: 2, PrimaryWasSwapped: true},
+		{SceneID: "2", Status: "failed", Error: "boom"},
+	}
+	buf := &bytes.Buffer{}
+	if err := PrintFilesReports(buf, reports); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"successes:        1", "failures:         1", "primary swaps:    1", "files deleted:    2", "1.40 GiB", "boom"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in output, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestPrintTagPlanCommitOmitsDryRunNotice(t *testing.T) {
 	cfg := loadDefaults(t)
 	plan := &TagPlan{Groups: []*store.SceneGroup{{ID: 1}}}

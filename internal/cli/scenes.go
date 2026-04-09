@@ -28,9 +28,15 @@ var (
 	flagScenesReportFilter string
 	flagScenesReportJSON   bool
 
-	flagScenesApplyAction string
-	flagScenesApplyCommit bool
-	flagScenesApplyYes    bool
+	flagScenesApplyAction       string
+	flagScenesApplyCommit       bool
+	flagScenesApplyYes          bool
+	flagScenesApplySubmitFprint bool
+
+	flagScenesMarkSignature string
+	flagScenesMarkAs        string
+	flagScenesMarkKeeper    string
+	flagScenesMarkNotes     string
 )
 
 // newScenesCmd builds the `stash-janitor scenes` subcommand tree (workflow A).
@@ -88,14 +94,31 @@ requires an interactive YES confirmation (or --yes for scripted use).`,
 	applyCmd.Flags().StringVar(&flagScenesApplyAction, "action", "tag", "tag|merge|delete (delete is Phase 2)")
 	applyCmd.Flags().BoolVar(&flagScenesApplyCommit, "commit", false, "actually mutate Stash (default is dry-run)")
 	applyCmd.Flags().BoolVar(&flagScenesApplyYes, "yes", false, "bypass interactive YES prompt for destructive --commit actions")
+	applyCmd.Flags().BoolVar(&flagScenesApplySubmitFprint, "submit-fingerprints", false, "after a successful --commit, submit keeper fingerprints to stash-box endpoints")
 
-	mark := &cobra.Command{
+	markCmd := &cobra.Command{
 		Use:   "mark",
-		Short: "Persist a manual override for a duplicate group (Phase 1.5)",
-		RunE:  stub("scenes mark"),
-	}
+		Short: "Persist a manual override for a duplicate group",
+		Long: `Persist a decision about a duplicate group that survives across scan
+re-runs. Stored locally in stash-janitor.sqlite, keyed by the group signature
+(sorted scene IDs joined by '|').
 
-	cmd.AddCommand(scanCmd, statusCmd, reportCmd, applyCmd, mark)
+Decisions:
+  not_duplicate    Mark the group as 'these aren't actually duplicates'.
+                   Future scans will mark it dismissed and skip it during apply.
+  dismiss          Same effect as not_duplicate but with a different label.
+  force_keeper     Override the scorer's pick. Requires --keeper SCENE_ID.
+                   Future scans will use the pinned keeper instead of scoring.
+
+Use 'stash-janitor scenes report' to find the signature you want to mark.`,
+		RunE: runScenesMark,
+	}
+	markCmd.Flags().StringVar(&flagScenesMarkSignature, "signature", "", "group signature (sorted scene IDs joined by |)")
+	markCmd.Flags().StringVar(&flagScenesMarkAs, "as", "", "decision to record: not_duplicate|dismiss|force_keeper")
+	markCmd.Flags().StringVar(&flagScenesMarkKeeper, "keeper", "", "scene ID to pin as keeper (required for --as force_keeper)")
+	markCmd.Flags().StringVar(&flagScenesMarkNotes, "notes", "", "optional free-form notes saved with the decision")
+
+	cmd.AddCommand(scanCmd, statusCmd, reportCmd, applyCmd, markCmd)
 	return cmd
 }
 
@@ -217,6 +240,11 @@ func runScenesApply(cmd *cobra.Command, args []string) error {
 			return err
 		}
 		fmt.Fprintln(out, "\nDone. Tags have been applied. Review and bulk-delete losers in Stash's UI.")
+		if flagScenesApplySubmitFprint {
+			if err := submitFingerprintsForScenePlan(ctx, client, st, out, plan.KeeperSceneIDs); err != nil {
+				return err
+			}
+		}
 		return nil
 
 	case "merge":
@@ -257,11 +285,84 @@ func runScenesApply(cmd *cobra.Command, args []string) error {
 		if err != nil {
 			return err
 		}
-		return apply.PrintMergeReports(out, reports)
+		if err := apply.PrintMergeReports(out, reports); err != nil {
+			return err
+		}
+		if flagScenesApplySubmitFprint {
+			keeperIDs := make([]string, 0, len(reports))
+			for _, r := range reports {
+				if r.Status == "success" && r.KeeperSceneID != "" {
+					keeperIDs = append(keeperIDs, r.KeeperSceneID)
+				}
+			}
+			if err := submitFingerprintsForScenePlan(ctx, client, st, out, keeperIDs); err != nil {
+				return err
+			}
+		}
+		return nil
 
 	case "delete":
 		return fmt.Errorf("scenes apply --action delete is Phase 2; use --action merge to reclaim space without losing metadata")
 	default:
 		return fmt.Errorf("unknown --action %q (try: tag|merge|delete)", flagScenesApplyAction)
 	}
+}
+
+// submitFingerprintsForScenePlan is the post-commit fingerprint submission
+// helper used by all apply paths that opt in via --submit-fingerprints.
+// Idempotent: pairs already in fingerprint_submissions are skipped.
+func submitFingerprintsForScenePlan(
+	ctx context.Context,
+	client *stash.Client,
+	st *store.Store,
+	out interface{ Write([]byte) (int, error) },
+	keeperSceneIDs []string,
+) error {
+	if len(keeperSceneIDs) == 0 {
+		return nil
+	}
+	report, err := apply.SubmitFingerprintsForScenes(ctx, client, st, keeperSceneIDs)
+	if err != nil {
+		return err
+	}
+	return apply.PrintFingerprintReport(out, report)
+}
+
+func runScenesMark(cmd *cobra.Command, args []string) error {
+	if flagScenesMarkSignature == "" {
+		return fmt.Errorf("--signature is required (run `stash-janitor scenes report` to find one)")
+	}
+	switch flagScenesMarkAs {
+	case "not_duplicate", "dismiss", "force_keeper":
+	case "":
+		return fmt.Errorf("--as is required (one of: not_duplicate|dismiss|force_keeper)")
+	default:
+		return fmt.Errorf("unknown --as %q (try: not_duplicate|dismiss|force_keeper)", flagScenesMarkAs)
+	}
+	if flagScenesMarkAs == "force_keeper" && flagScenesMarkKeeper == "" {
+		return fmt.Errorf("--keeper SCENE_ID is required when --as force_keeper")
+	}
+
+	_, st, _, cleanup, err := loadConfigAndStore()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	d := store.UserDecision{
+		Key:      flagScenesMarkSignature,
+		Workflow: store.WorkflowScenes,
+		Decision: flagScenesMarkAs,
+		KeeperID: flagScenesMarkKeeper,
+		Notes:    flagScenesMarkNotes,
+	}
+	if err := st.PutUserDecision(context.Background(), d); err != nil {
+		return err
+	}
+	fmt.Fprintf(cmd.OutOrStdout(),
+		"recorded: signature=%s decision=%s%s\nThis override applies to future `stash-janitor scenes scan` runs.\n",
+		flagScenesMarkSignature, flagScenesMarkAs,
+		map[bool]string{true: " keeper=" + flagScenesMarkKeeper, false: ""}[flagScenesMarkKeeper != ""],
+	)
+	return nil
 }

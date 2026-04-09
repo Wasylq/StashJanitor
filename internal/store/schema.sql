@@ -113,3 +113,13 @@ CREATE TABLE IF NOT EXISTS user_decisions (
   decided_at      TEXT NOT NULL,
   notes           TEXT
 );
+
+-- Tracks which (scene, stash-box endpoint) pairs we've already submitted
+-- fingerprints for. Lets re-runs of --submit-fingerprints skip work and
+-- avoid spamming stash-box. Added in schema v3.
+CREATE TABLE IF NOT EXISTS fingerprint_submissions (
+  scene_id        TEXT NOT NULL,
+  endpoint        TEXT NOT NULL,
+  submitted_at    TEXT NOT NULL,
+  PRIMARY KEY (scene_id, endpoint)
+);

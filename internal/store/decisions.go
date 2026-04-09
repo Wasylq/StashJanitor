@@ -29,6 +29,34 @@ func (s *Store) PutUserDecision(ctx context.Context, d UserDecision) error {
 	return err
 }
 
+// HasSubmittedFingerprints reports whether (sceneID, endpoint) is already
+// recorded in fingerprint_submissions. Used by --submit-fingerprints to
+// skip already-submitted scenes across re-runs.
+func (s *Store) HasSubmittedFingerprints(ctx context.Context, sceneID, endpoint string) (bool, error) {
+	var n int
+	err := s.db.QueryRowContext(ctx,
+		`SELECT COUNT(*) FROM fingerprint_submissions WHERE scene_id = ? AND endpoint = ?`,
+		sceneID, endpoint,
+	).Scan(&n)
+	if err != nil {
+		return false, err
+	}
+	return n > 0, nil
+}
+
+// RecordFingerprintSubmission writes (sceneID, endpoint) into the
+// fingerprint_submissions table. Idempotent — re-recording the same pair
+// is a no-op (PRIMARY KEY conflict is silently ignored).
+func (s *Store) RecordFingerprintSubmission(ctx context.Context, sceneID, endpoint string) error {
+	_, err := s.db.ExecContext(ctx,
+		`INSERT INTO fingerprint_submissions (scene_id, endpoint, submitted_at)
+		 VALUES (?, ?, ?)
+		 ON CONFLICT(scene_id, endpoint) DO NOTHING`,
+		sceneID, endpoint, nowRFC3339(),
+	)
+	return err
+}
+
 // GetUserDecision returns the override stored under the given key, or
 // ErrNotFound if there is no row.
 func (s *Store) GetUserDecision(ctx context.Context, key string) (*UserDecision, error) {

@@ -343,6 +343,37 @@ func (c *Client) DeleteFiles(ctx context.Context, fileIDs []string) error {
 }
 
 // ============================================================================
+// submitStashBoxFingerprints — sends file hashes upstream to stash-box
+// ============================================================================
+
+const submitStashBoxFingerprintsMutation = `
+mutation SubmitStashBoxFingerprints($scene_ids: [String!]!, $endpoint: String) {
+  submitStashBoxFingerprints(input: {
+    scene_ids: $scene_ids
+    stash_box_endpoint: $endpoint
+  })
+}
+`
+
+// SubmitStashBoxFingerprints uploads the given scenes' file fingerprints
+// (phash + oshash + md5) to the stash-box instance at endpoint. Used by
+// `--submit-fingerprints` after a successful apply so future Stash users
+// who scan the same files get an automatic stash-box match.
+//
+// All scenes are submitted in a single batch per endpoint. Stash returns
+// boolean true on success — there's no per-scene status.
+func (c *Client) SubmitStashBoxFingerprints(ctx context.Context, sceneIDs []string, endpoint string) error {
+	if len(sceneIDs) == 0 {
+		return nil
+	}
+	vars := map[string]any{
+		"scene_ids": sceneIDs,
+		"endpoint":  endpoint,
+	}
+	return c.Execute(ctx, submitStashBoxFingerprintsMutation, vars, nil)
+}
+
+// ============================================================================
 // Diagnostics
 // ============================================================================
 

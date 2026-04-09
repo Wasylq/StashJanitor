@@ -596,15 +596,15 @@ different metadata" problem.
 
 ## 13. TODO — Phase 1.5
 
-1. [ ] `stash-janitor files apply --commit` — `sceneUpdate(primary_file_id)` +
+1. [x] `stash-janitor files apply --commit` — `sceneUpdate(primary_file_id)` +
        `deleteFiles`, idempotent, marks `applied_at`, threshold-based
        confirmation prompt
-2. [ ] `fingerprint_submissions` SQLite table + migration
-3. [ ] `--submit-fingerprints` flag — after a successful `--commit` on either
+2. [x] `fingerprint_submissions` SQLite table + migration
+3. [x] `--submit-fingerprints` flag — after a successful `--commit` on either
        workflow, call `submitStashBoxFingerprints` for any keeper scene that
        has at least one `stash_id`. Skip scenes already in
        `fingerprint_submissions`. Record on success.
-4. [ ] `stash-janitor scenes mark` and `stash-janitor files mark` — persistent user overrides.
+4. [x] `stash-janitor scenes mark` and `stash-janitor files mark` — persistent user overrides.
 
 ## 14. Done outside the original Phase 1 plan
 
