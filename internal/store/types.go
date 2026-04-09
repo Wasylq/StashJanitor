@@ -4,83 +4,83 @@ import "time"
 
 // ScanRun records one invocation of `stash-janitor scenes scan` or `stash-janitor files scan`.
 type ScanRun struct {
-	ID           int64
-	Workflow     string // WorkflowScenes | WorkflowFiles
-	StartedAt    time.Time
-	FinishedAt   *time.Time
-	Distance     *int     // only meaningful for WorkflowScenes
-	DurationDiff *float64 // only meaningful for WorkflowScenes
-	GroupCount   int
-	Notes        string
+	ID           int64      `json:"id"`
+	Workflow     string     `json:"workflow"` // WorkflowScenes | WorkflowFiles
+	StartedAt    time.Time  `json:"started_at"`
+	FinishedAt   *time.Time `json:"finished_at,omitempty"`
+	Distance     *int       `json:"distance,omitempty"`      // only meaningful for WorkflowScenes
+	DurationDiff *float64   `json:"duration_diff,omitempty"` // only meaningful for WorkflowScenes
+	GroupCount   int        `json:"group_count"`
+	Notes        string     `json:"notes,omitempty"`
 }
 
 // SceneGroup is a workflow A duplicate group as cached locally.
 type SceneGroup struct {
-	ID             int64
-	ScanRunID      int64
-	Signature      string
-	Status         string
-	DecisionReason string
-	DecidedAt      *time.Time
-	AppliedAt      *time.Time
-	Scenes         []SceneGroupScene
+	ID             int64             `json:"id"`
+	ScanRunID      int64             `json:"scan_run_id"`
+	Signature      string            `json:"signature"`
+	Status         string            `json:"status"`
+	DecisionReason string            `json:"decision_reason,omitempty"`
+	DecidedAt      *time.Time        `json:"decided_at,omitempty"`
+	AppliedAt      *time.Time        `json:"applied_at,omitempty"`
+	Scenes         []SceneGroupScene `json:"scenes"`
 }
 
 // SceneGroupScene is one scene's snapshot within a SceneGroup.
 type SceneGroupScene struct {
-	SceneID        string
-	Role           string
-	Width          int
-	Height         int
-	Bitrate        int
-	Framerate      float64
-	Codec          string
-	FileSize       int64
-	Duration       float64
-	Organized      bool
-	HasStashID     bool
-	TagCount       int
-	PerformerCount int
-	PrimaryPath    string
+	SceneID        string  `json:"scene_id"`
+	Role           string  `json:"role"`
+	Width          int     `json:"width,omitempty"`
+	Height         int     `json:"height,omitempty"`
+	Bitrate        int     `json:"bitrate,omitempty"`
+	Framerate      float64 `json:"framerate,omitempty"`
+	Codec          string  `json:"codec,omitempty"`
+	FileSize       int64   `json:"file_size,omitempty"`
+	Duration       float64 `json:"duration,omitempty"`
+	Organized      bool    `json:"organized"`
+	HasStashID     bool    `json:"has_stash_id"`
+	TagCount       int     `json:"tag_count"`
+	PerformerCount int     `json:"performer_count"`
+	PrimaryPath    string  `json:"primary_path,omitempty"`
 }
 
 // FileGroup is a workflow B multi-file scene as cached locally.
 type FileGroup struct {
-	ID             int64
-	ScanRunID      int64
-	SceneID        string
-	Status         string
-	DecisionReason string
-	DecidedAt      *time.Time
-	AppliedAt      *time.Time
-	Files          []FileGroupFile
+	ID             int64           `json:"id"`
+	ScanRunID      int64           `json:"scan_run_id"`
+	SceneID        string          `json:"scene_id"`
+	Status         string          `json:"status"`
+	DecisionReason string          `json:"decision_reason,omitempty"`
+	DecidedAt      *time.Time      `json:"decided_at,omitempty"`
+	AppliedAt      *time.Time      `json:"applied_at,omitempty"`
+	Files          []FileGroupFile `json:"files"`
 }
 
 // FileGroupFile is one file's snapshot within a FileGroup.
 type FileGroupFile struct {
-	FileID          string
-	Role            string
-	IsPrimary       bool
-	Basename        string
-	Path            string
-	ModTime         string // free-form RFC3339 string from Stash; we don't parse it
-	FilenameQuality int    // 0 or 1
-	Width           int
-	Height          int
-	Bitrate         int
-	Framerate       float64
-	Codec           string
-	FileSize        int64
+	FileID          string  `json:"file_id"`
+	Role            string  `json:"role"`
+	IsPrimary       bool    `json:"is_primary"`
+	Basename        string  `json:"basename"`
+	Path            string  `json:"path"`
+	ModTime         string  `json:"mod_time,omitempty"`
+	FilenameQuality int     `json:"filename_quality"`
+	Width           int     `json:"width,omitempty"`
+	Height          int     `json:"height,omitempty"`
+	Bitrate         int     `json:"bitrate,omitempty"`
+	Framerate       float64 `json:"framerate,omitempty"`
+	Codec           string  `json:"codec,omitempty"`
+	FileSize        int64   `json:"file_size,omitempty"`
 }
 
 // UserDecision is a persistent override that survives scan re-runs.
 type UserDecision struct {
-	Key       string // signature (scenes) or "scene:<id>" (files)
-	Workflow  string
-	Decision  string // not_duplicate | force_keeper | dismiss | keep_all
-	KeeperID  string
-	DecidedAt time.Time
-	Notes     string
+	Key       string    `json:"key"` // signature (scenes) or "scene:<id>" (files)
+	Workflow  string    `json:"workflow"`
+	Decision  string    `json:"decision"` // not_duplicate | force_keeper | dismiss | keep_all
+	KeeperID  string    `json:"keeper_id,omitempty"`
+	DecidedAt time.Time `json:"decided_at"`
+	Notes     string    `json:"notes,omitempty"`
 }
 
 // SceneGroupSignature builds the canonical signature for a workflow A group:
