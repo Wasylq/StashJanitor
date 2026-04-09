@@ -101,6 +101,70 @@ func TestPrintMergePlanCommitMessage(t *testing.T) {
 	}
 }
 
+func TestPlanDeleteCountsLosersAndBytes(t *testing.T) {
+	ctx := context.Background()
+	st := newTestStore(t)
+	runID, _ := st.StartScanRun(ctx, store.WorkflowScenes, nil, nil)
+
+	groups := []*store.SceneGroup{
+		{
+			ScanRunID: runID,
+			Signature: "1|2",
+			Status:    store.StatusDecided,
+			Scenes: []store.SceneGroupScene{
+				{SceneID: "1", Role: store.RoleKeeper},
+				{SceneID: "2", Role: store.RoleLoser, FileSize: 2_000_000_000},
+			},
+		},
+		// needs_review excluded.
+		{
+			ScanRunID: runID,
+			Signature: "10|11",
+			Status:    store.StatusNeedsReview,
+			Scenes: []store.SceneGroupScene{
+				{SceneID: "10", Role: store.RoleUndecided, FileSize: 999},
+			},
+		},
+	}
+	for _, g := range groups {
+		if err := st.UpsertSceneGroup(ctx, g); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	plan, err := PlanDelete(ctx, st)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(plan.Groups) != 1 {
+		t.Errorf("len(plan.Groups) = %d, want 1", len(plan.Groups))
+	}
+	if plan.TotalLosers != 1 {
+		t.Errorf("TotalLosers = %d, want 1", plan.TotalLosers)
+	}
+	if plan.ReclaimableBytes != 2_000_000_000 {
+		t.Errorf("ReclaimableBytes = %d, want 2000000000", plan.ReclaimableBytes)
+	}
+}
+
+func TestPrintDeletePlanWarnsAboutMetadataLoss(t *testing.T) {
+	plan := &DeletePlan{
+		Groups:           []*store.SceneGroup{{ID: 1}},
+		TotalLosers:      1,
+		ReclaimableBytes: 1_000_000_000,
+	}
+	buf := &bytes.Buffer{}
+	if err := PrintDeletePlan(buf, plan, false); err != nil {
+		t.Fatal(err)
+	}
+	out := buf.String()
+	for _, want := range []string{"DRY RUN", "delete does NOT preserve", "scenesDestroy", "Use merge"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("expected %q in delete dry-run output, got:\n%s", want, out)
+		}
+	}
+}
+
 func TestPrintMergeReports(t *testing.T) {
 	reports := []*MergeReport{
 		{GroupID: 1, KeeperSceneID: "42", Status: "success", BytesReclaimed: 1_500_000_000},

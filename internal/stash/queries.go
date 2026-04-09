@@ -360,6 +360,35 @@ func (c *Client) RenameFile(ctx context.Context, fileID, newBasename string) err
 }
 
 // ============================================================================
+// scenesDestroy — workflow A's hard-delete action
+// ============================================================================
+
+const scenesDestroyMutation = `
+mutation ScenesDestroy($ids: [ID!]!) {
+  scenesDestroy(input: {
+    ids: $ids
+    delete_file: true
+    delete_generated: true
+  })
+}
+`
+
+// ScenesDestroy hard-deletes the given scenes from Stash AND deletes their
+// underlying files from disk. Used by `stash-janitor scenes apply --action delete`
+// for the case where the user is certain there's nothing worth preserving
+// on the losers.
+//
+// This is the most destructive single mutation in the tool. The cli layer
+// must always gate it behind --commit + interactive YES (or --yes).
+func (c *Client) ScenesDestroy(ctx context.Context, sceneIDs []string) error {
+	if len(sceneIDs) == 0 {
+		return nil
+	}
+	vars := map[string]any{"ids": sceneIDs}
+	return c.Execute(ctx, scenesDestroyMutation, vars, nil)
+}
+
+// ============================================================================
 // deleteFiles — used by workflow B and post-merge cleanup
 // ============================================================================
 

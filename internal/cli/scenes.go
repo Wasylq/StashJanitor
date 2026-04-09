@@ -91,7 +91,7 @@ requires an interactive YES confirmation (or --yes for scripted use).`,
 		Short: "Resolve duplicate groups (tag, merge, or delete)",
 		RunE:  runScenesApply,
 	}
-	applyCmd.Flags().StringVar(&flagScenesApplyAction, "action", "tag", "tag|merge|delete (delete is Phase 2)")
+	applyCmd.Flags().StringVar(&flagScenesApplyAction, "action", "tag", "tag|merge|delete")
 	applyCmd.Flags().BoolVar(&flagScenesApplyCommit, "commit", false, "actually mutate Stash (default is dry-run)")
 	applyCmd.Flags().BoolVar(&flagScenesApplyYes, "yes", false, "bypass interactive YES prompt for destructive --commit actions")
 	applyCmd.Flags().BoolVar(&flagScenesApplySubmitFprint, "submit-fingerprints", false, "after a successful --commit, submit keeper fingerprints to stash-box endpoints")
@@ -302,7 +302,55 @@ func runScenesApply(cmd *cobra.Command, args []string) error {
 		return nil
 
 	case "delete":
-		return fmt.Errorf("scenes apply --action delete is Phase 2; use --action merge to reclaim space without losing metadata")
+		plan, err := apply.PlanDelete(ctx, st)
+		if err != nil {
+			return err
+		}
+		if err := apply.PrintDeletePlan(out, plan, flagScenesApplyCommit); err != nil {
+			return err
+		}
+		if !flagScenesApplyCommit {
+			return nil
+		}
+		if len(plan.Groups) == 0 {
+			return nil
+		}
+
+		// Most destructive action — gate behind interactive YES (or --yes).
+		summary := confirm.Summary{
+			Action:           "hard-delete losers",
+			GroupCount:       len(plan.Groups),
+			SceneCount:       plan.TotalLosers,
+			ReclaimableBytes: plan.ReclaimableBytes,
+		}
+		ok, err := confirm.PromptYES(os.Stdin, out, summary, flagScenesApplyYes)
+		if err != nil {
+			return err
+		}
+		if !ok {
+			return nil
+		}
+
+		reports, err := apply.ExecuteDelete(ctx, client, st, plan)
+		if err != nil {
+			return err
+		}
+		if err := apply.PrintDeleteReports(out, reports); err != nil {
+			return err
+		}
+		if flagScenesApplySubmitFprint {
+			keeperIDs := make([]string, 0, len(reports))
+			for _, r := range reports {
+				if r.Status == "success" && r.KeeperSceneID != "" {
+					keeperIDs = append(keeperIDs, r.KeeperSceneID)
+				}
+			}
+			if err := submitFingerprintsForScenePlan(ctx, client, st, out, keeperIDs); err != nil {
+				return err
+			}
+		}
+		return nil
+
 	default:
 		return fmt.Errorf("unknown --action %q (try: tag|merge|delete)", flagScenesApplyAction)
 	}

@@ -467,8 +467,9 @@ Global flags: `--config <path>`, `--db <path>`, `-v/-vv` for log verbosity.
 17. `stash-janitor scenes mark` and `stash-janitor files mark` for persistent overrides
 
 ### Phase 2 — Cross-scene power tools + TUI
-18. `stash-janitor scenes apply --action delete` (`scenesDestroy(delete_file: true)`) —
-    last-resort hard delete for cases where merge is inappropriate
+18. [x] `stash-janitor scenes apply --action delete` (`scenesDestroy(delete_file: true,
+    delete_generated: true)`) — last-resort hard delete for cases where
+    merge is inappropriate
 19. `stash-janitor review` interactive TUI (bubbletea) — covers both workflows
 20. ~~Per-group manual override of the auto-picked keeper~~ — shipped in
     Phase 1.5 as `stash-janitor scenes mark --as force_keeper --keeper SCENE_ID`
