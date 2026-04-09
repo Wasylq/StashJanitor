@@ -142,3 +142,16 @@ merge:
     # for the others. Strongly recommended — this is what actually reclaims
     # disk space.
     enabled: true
+
+    # Before deleting loser files, if the WINNER file has a junk basename
+    # but at least one loser has a structured one (matches the filename
+    # quality regex), rename the winner via moveFiles to use the loser's
+    # basename — with the resolution token swapped to match the winner's
+    # actual height. This preserves the human-readable info encoded in
+    # the loser's filename without losing the higher-quality file.
+    #
+    # Example:
+    #   winner: /data/tmp3/random_garbage_4k_encoded.mp4 (3840x2160)
+    #   loser:  /data/sorted/2024-12-15_Performer-Title_1080p.mp4
+    #   →  winner becomes /data/tmp3/2024-12-15_Performer-Title_4k.mp4
+    rename_winner_filename: true

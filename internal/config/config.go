@@ -108,7 +108,8 @@ type MergeHistory struct {
 }
 
 type PostMergeFileCleanup struct {
-	Enabled bool `yaml:"enabled"`
+	Enabled              bool `yaml:"enabled"`
+	RenameWinnerFilename bool `yaml:"rename_winner_filename"`
 }
 
 // Load reads the user's config file (if it exists) and merges it on top of

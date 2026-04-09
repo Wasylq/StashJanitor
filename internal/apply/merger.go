@@ -81,16 +81,19 @@ func PrintMergePlan(w io.Writer, p *MergePlan, commit bool) error {
 
 // MergeReport is the per-group outcome of ExecuteMerge.
 type MergeReport struct {
-	GroupID            int64
-	KeeperSceneID      string
-	LoserSceneIDs      []string
-	Status             string // "success" | "skipped" | "failed"
-	Error              string
-	UnionedFields      []merge.FieldDiff
-	NewPrimaryFileID   string
-	PrimaryWasSwapped  bool
-	FilesDeletedCount  int
-	BytesReclaimed     int64
+	GroupID           int64
+	KeeperSceneID     string
+	LoserSceneIDs     []string
+	Status            string // "success" | "skipped" | "failed"
+	Error             string
+	UnionedFields     []merge.FieldDiff
+	NewPrimaryFileID  string
+	PrimaryWasSwapped bool
+	// RenamedTo is set when post-merge rename swapped the winner file's
+	// basename to a structured name derived from a loser. Empty otherwise.
+	RenamedTo         string
+	FilesDeletedCount int
+	BytesReclaimed    int64
 }
 
 // ExecuteMerge runs the full merge pipeline for every group in the plan.
@@ -261,6 +264,26 @@ func executeOneMerge(
 		}
 	}
 
+	// Rename-on-merge: if the winner has a junk basename and any loser has
+	// a structured one, rename the winner to use a basename derived from
+	// the loser (with the resolution token swapped to match the winner's
+	// actual height). This preserves the human-readable info encoded in
+	// the loser's filename. Errors here are non-fatal — log and continue
+	// to the deletion step so we don't leave the scene in a half-applied
+	// state.
+	if cfg.Merge.PostMergeFileCleanup.RenameWinnerFilename {
+		if newBasename := pickRenameTarget(scorer, merged.Files, winnerIdx); newBasename != "" && newBasename != winner.Basename {
+			if err := c.RenameFile(ctx, winner.ID, newBasename); err != nil {
+				slog.Warn("rename winner file failed; continuing without rename",
+					"scene_id", merged.ID, "file_id", winner.ID, "new_basename", newBasename, "error", err)
+			} else {
+				report.RenamedTo = newBasename
+				slog.Info("renamed winner file to preserve loser filename info",
+					"scene_id", merged.ID, "file_id", winner.ID, "new_basename", newBasename)
+			}
+		}
+	}
+
 	var loserFileIDs []string
 	for i, f := range merged.Files {
 		if i == winnerIdx {
@@ -276,6 +299,36 @@ func executeOneMerge(
 	return nil
 }
 
+// pickRenameTarget chooses a target basename for the winner file based on
+// the losers' filenames. Returns "" when no rename should happen:
+//
+//   - winner already has a structured basename (matches the file scorer's
+//     filename_quality regex) — nothing to gain
+//   - no loser has a structured basename — nothing to derive from
+//
+// Otherwise the first loser with a structured basename is used as the
+// source, and rebuildBasenameForFile swaps in the winner's resolution
+// and extension.
+func pickRenameTarget(scorer *decide.FileScorer, files []stash.VideoFile, winnerIdx int) string {
+	if winnerIdx < 0 || winnerIdx >= len(files) {
+		return ""
+	}
+	winner := &files[winnerIdx]
+	if scorer.ClassifyFilename(winner.Basename) == 1 {
+		// Winner already has a good name; do nothing.
+		return ""
+	}
+	for i := range files {
+		if i == winnerIdx {
+			continue
+		}
+		if scorer.ClassifyFilename(files[i].Basename) == 1 {
+			return rebuildBasenameForFile(files[i].Basename, winner)
+		}
+	}
+	return ""
+}
+
 // PrintMergeReports writes a summary of the per-group outcomes after
 // ExecuteMerge has finished.
 func PrintMergeReports(w io.Writer, reports []*MergeReport) error {
@@ -286,6 +339,7 @@ func PrintMergeReports(w io.Writer, reports []*MergeReport) error {
 		ok      int
 		failed  int
 		skipped int
+		renamed int
 		bytes   int64
 	)
 	for _, r := range reports {
@@ -293,6 +347,9 @@ func PrintMergeReports(w io.Writer, reports []*MergeReport) error {
 		case "success":
 			ok++
 			bytes += r.BytesReclaimed
+			if r.RenamedTo != "" {
+				renamed++
+			}
 		case "failed":
 			failed++
 		case "skipped":
@@ -300,10 +357,19 @@ func PrintMergeReports(w io.Writer, reports []*MergeReport) error {
 		}
 	}
 	fmt.Fprintf(w, "\n=== merge complete ===\n")
-	fmt.Fprintf(w, "  successes: %d\n", ok)
-	fmt.Fprintf(w, "  failures:  %d\n", failed)
-	fmt.Fprintf(w, "  skipped:   %d\n", skipped)
-	fmt.Fprintf(w, "  bytes reclaimed: %s\n", confirm.HumanBytes(bytes))
+	fmt.Fprintf(w, "  successes:        %d\n", ok)
+	fmt.Fprintf(w, "  failures:         %d\n", failed)
+	fmt.Fprintf(w, "  skipped:          %d\n", skipped)
+	fmt.Fprintf(w, "  files renamed:    %d  (winner basename swapped to preserve loser filename info)\n", renamed)
+	fmt.Fprintf(w, "  bytes reclaimed:  %s\n", confirm.HumanBytes(bytes))
+	if renamed > 0 {
+		fmt.Fprintln(w, "\nRenamed files:")
+		for _, r := range reports {
+			if r.RenamedTo != "" {
+				fmt.Fprintf(w, "  group #%d (keeper %s): → %s\n", r.GroupID, r.KeeperSceneID, r.RenamedTo)
+			}
+		}
+	}
 	if failed > 0 {
 		fmt.Fprintln(w, "\nFailed groups:")
 		for _, r := range reports {

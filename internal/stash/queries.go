@@ -321,6 +321,45 @@ func (c *Client) SceneMerge(ctx context.Context, input SceneMergeInput) error {
 }
 
 // ============================================================================
+// moveFiles — used by post-merge rename to preserve loser filename info
+// ============================================================================
+
+// MoveFilesInput mirrors Stash's MoveFilesInput. destination_basename is
+// only valid for a single file id; we always use it that way to rename
+// the post-merge winner file in place.
+type MoveFilesInput struct {
+	IDs                 []string `json:"ids"`
+	DestinationFolder   string   `json:"destination_folder,omitempty"`
+	DestinationFolderID string   `json:"destination_folder_id,omitempty"`
+	DestinationBasename string   `json:"destination_basename,omitempty"`
+}
+
+const moveFilesMutation = `
+mutation MoveFiles($input: MoveFilesInput!) {
+  moveFiles(input: $input)
+}
+`
+
+// MoveFiles calls Stash's moveFiles mutation. Used by post-merge rename
+// to give the winning file a human-readable basename derived from the
+// losing files' structured filenames.
+func (c *Client) MoveFiles(ctx context.Context, input MoveFilesInput) error {
+	if len(input.IDs) == 0 {
+		return nil
+	}
+	return c.Execute(ctx, moveFilesMutation, map[string]any{"input": input}, nil)
+}
+
+// RenameFile is a convenience wrapper for the common case of renaming
+// exactly one file in place (no folder change).
+func (c *Client) RenameFile(ctx context.Context, fileID, newBasename string) error {
+	return c.MoveFiles(ctx, MoveFilesInput{
+		IDs:                 []string{fileID},
+		DestinationBasename: newBasename,
+	})
+}
+
+// ============================================================================
 // deleteFiles — used by workflow B and post-merge cleanup
 // ============================================================================
 

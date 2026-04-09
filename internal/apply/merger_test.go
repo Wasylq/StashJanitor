@@ -112,7 +112,7 @@ func TestPrintMergeReports(t *testing.T) {
 		t.Fatal(err)
 	}
 	out := buf.String()
-	for _, want := range []string{"successes: 1", "failures:  1", "skipped:   1", "test failure", "1.40 GiB"} {
+	for _, want := range []string{"successes:        1", "failures:         1", "skipped:          1", "test failure", "1.40 GiB"} {
 		if !strings.Contains(out, want) {
 			t.Errorf("expected %q in reports output, got:\n%s", want, out)
 		}

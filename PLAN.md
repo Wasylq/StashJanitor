@@ -470,7 +470,13 @@ Global flags: `--config <path>`, `--db <path>`, `-v/-vv` for log verbosity.
 18. `stash-janitor scenes apply --action delete` (`scenesDestroy(delete_file: true)`) —
     last-resort hard delete for cases where merge is inappropriate
 19. `stash-janitor review` interactive TUI (bubbletea) — covers both workflows
-20. Per-group manual override of the auto-picked keeper
+20. ~~Per-group manual override of the auto-picked keeper~~ — shipped in
+    Phase 1.5 as `stash-janitor scenes mark --as force_keeper --keeper SCENE_ID`
+21. [x] **Rename-on-merge** for filename info loss cases — when the
+    post-merge winner has a junk basename and a loser has a structured
+    one, rename the winner via `moveFiles` to use the loser's basename
+    with the resolution token swapped to match the winner's height.
+    Default-on, configurable via `merge.post_merge_file_cleanup.rename_winner_filename`.
 
 ### Phase 3 — Stretch
 21. Identify metadata-less orphans via stash-box phash lookup
