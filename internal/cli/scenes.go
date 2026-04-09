@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 
+	"github.com/Wasylq/StashJanitor/internal/apply"
 	"github.com/Wasylq/StashJanitor/internal/config"
 	"github.com/Wasylq/StashJanitor/internal/decide"
 	"github.com/Wasylq/StashJanitor/internal/report"
@@ -77,14 +78,14 @@ requires an interactive YES confirmation (or --yes for scripted use).`,
 	reportCmd.Flags().StringVar(&flagScenesReportFilter, "filter", "all", "which groups to show: all|decided|needs-review|applied|dismissed")
 	reportCmd.Flags().BoolVar(&flagScenesReportJSON, "json", false, "emit JSON instead of human-readable text")
 
-	apply := &cobra.Command{
+	applyCmd := &cobra.Command{
 		Use:   "apply",
 		Short: "Resolve duplicate groups (tag, merge, or delete)",
-		RunE:  stub("scenes apply"),
+		RunE:  runScenesApply,
 	}
-	apply.Flags().StringVar(&flagScenesApplyAction, "action", "tag", "tag|merge|delete (delete is Phase 2)")
-	apply.Flags().BoolVar(&flagScenesApplyCommit, "commit", false, "actually mutate Stash (default is dry-run)")
-	apply.Flags().BoolVar(&flagScenesApplyYes, "yes", false, "bypass interactive YES prompt for destructive --commit actions")
+	applyCmd.Flags().StringVar(&flagScenesApplyAction, "action", "tag", "tag|merge|delete (delete is Phase 2)")
+	applyCmd.Flags().BoolVar(&flagScenesApplyCommit, "commit", false, "actually mutate Stash (default is dry-run)")
+	applyCmd.Flags().BoolVar(&flagScenesApplyYes, "yes", false, "bypass interactive YES prompt for destructive --commit actions")
 
 	mark := &cobra.Command{
 		Use:   "mark",
@@ -92,7 +93,7 @@ requires an interactive YES confirmation (or --yes for scripted use).`,
 		RunE:  stub("scenes mark"),
 	}
 
-	cmd.AddCommand(scanCmd, statusCmd, reportCmd, apply, mark)
+	cmd.AddCommand(scanCmd, statusCmd, reportCmd, applyCmd, mark)
 	return cmd
 }
 
@@ -178,4 +179,40 @@ func runScenesReport(cmd *cobra.Command, args []string) error {
 		return report.PrintScenesReportJSON(out, groups)
 	}
 	return report.PrintScenesReport(out, groups)
+}
+
+func runScenesApply(cmd *cobra.Command, args []string) error {
+	cfg, st, client, cleanup, err := loadConfigAndStore()
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+
+	ctx := context.Background()
+	out := cmd.OutOrStdout()
+
+	switch flagScenesApplyAction {
+	case "tag":
+		plan, err := apply.PlanTag(ctx, st)
+		if err != nil {
+			return err
+		}
+		if err := apply.PrintTagPlan(out, plan, cfg, flagScenesApplyCommit); err != nil {
+			return err
+		}
+		if !flagScenesApplyCommit {
+			return nil
+		}
+		if err := apply.ExecuteTag(ctx, client, st, cfg, plan); err != nil {
+			return err
+		}
+		fmt.Fprintln(out, "\nDone. Tags have been applied. Review and bulk-delete losers in Stash's UI.")
+		return nil
+	case "merge":
+		return fmt.Errorf("scenes apply --action merge is not implemented yet (task #13)")
+	case "delete":
+		return fmt.Errorf("scenes apply --action delete is Phase 2; use --action merge to reclaim space without losing metadata")
+	default:
+		return fmt.Errorf("unknown --action %q (try: tag|merge|delete)", flagScenesApplyAction)
+	}
 }
