@@ -542,56 +542,56 @@ different metadata" problem.
 ## 12. TODO — Phase 1 (in order)
 
 **Foundations**
-1. [ ] `go mod init`, project skeleton, cobra root command, slog
-2. [ ] Config types + YAML loader + `stash-janitor config init`
-3. [ ] Stash GraphQL client: transport, optional `ApiKey` header, error mapping
-4. [ ] Stash queries/mutations needed for Phase 1: `findDuplicateScenes`,
+1. [x] `go mod init`, project skeleton, cobra root command, slog
+2. [x] Config types + YAML loader + `stash-janitor config init`
+3. [x] Stash GraphQL client: transport, optional `ApiKey` header, error mapping
+4. [x] Stash queries/mutations needed for Phase 1: `findDuplicateScenes`,
        `findScenes` (with `file_count` filter), `findScene` (full detail incl.
        `files`, tags, performers, stash_ids, urls, etc.), `findTags`+
        `tagCreate`, `bulkSceneUpdate`, `sceneUpdate`, `sceneMerge`,
        `deleteFiles`
-5. [ ] SQLite store: embedded schema, migrations, scene-group + file-group
+5. [x] SQLite store: embedded schema, migrations, scene-group + file-group
        CRUD, user_decisions
-6. [ ] Interactive confirmation prompt utility (`pkg/confirm`) — used by
+6. [x] Interactive confirmation prompt utility (`pkg/confirm`) — used by
        merge `--commit` and any future destructive action; supports `--yes`
        bypass
 
 **Workflow A — cross-scene scan + tag**
-7. [ ] `stash-janitor scenes scan` — pull duplicate groups via `findDuplicateScenes`,
+7. [x] `stash-janitor scenes scan` — pull duplicate groups via `findDuplicateScenes`,
        streaming JSON decode, `--max-groups N` flag for chunked iteration,
        30s watchdog warning, upsert into store, apply user_decisions overrides
-8. [ ] Scoring engine (shared) + scene rules from config
-9. [ ] Decider: mark scene groups `decided` / `needs_review` with reason
-10. [ ] `stash-janitor scenes status` + `stash-janitor scenes report` (text + `--json`)
-11. [ ] `stash-janitor scenes apply --action tag` — dry-run default, `--commit` to
+8. [x] Scoring engine (shared) + scene rules from config
+9. [x] Decider: mark scene groups `decided` / `needs_review` with reason
+10. [x] `stash-janitor scenes status` + `stash-janitor scenes report` (text + `--json`)
+11. [x] `stash-janitor scenes apply --action tag` — dry-run default, `--commit` to
         mutate, idempotent, marks `applied_at`
 
 **Workflow A — cross-scene merge (the big one)**
-12. [ ] Metadata-union engine: `pkg/merge/union.go` — given keeper + losers
+12. [x] Metadata-union engine: `pkg/merge/union.go` — given keeper + losers
         full metadata + policy, build a `SceneUpdateInput`
-13. [ ] Merge apply pipeline (`pkg/apply/merger.go`): per group → fetch full
+13. [x] Merge apply pipeline (`pkg/apply/merger.go`): per group → fetch full
         metadata → union → sceneMerge → post-merge file cleanup → mark applied
-14. [ ] `stash-janitor scenes apply --action merge` — dry-run default with rich preview
+14. [x] `stash-janitor scenes apply --action merge` — dry-run default with rich preview
         (see section 10a step 3); `--commit` triggers confirmation prompt;
         `--yes` bypasses prompt
-15. [ ] Failure handling: per-group error capture into SQLite, continue on next
+15. [x] Failure handling: per-group error capture into SQLite, continue on next
 
 **Workflow B — within-scene**
-16. [ ] `stash-janitor files scan` — paginated `findScenes(file_count > 1)` with
+16. [x] `stash-janitor files scan` — paginated `findScenes(file_count > 1)` with
         `find_filter.per_page` (default 100), fetch each scene's full file
         list, upsert file-groups into store. Captures only the scoring
         inputs (filename, path, mod_time) plus a snapshot of tech specs for
         the report. Tech specs are NOT used in scoring — see section 7.
-17. [ ] File scoring rules: `filename_quality` (regex), `path_priority`,
+17. [x] File scoring rules: `filename_quality` (regex), `path_priority`,
         `mod_time`. NOT tech specs — they're guaranteed equal within a scene.
-18. [ ] `stash-janitor files status` + `stash-janitor files report`
-19. [ ] `stash-janitor files apply` — Phase 1: report-only default. Prints proposed
+18. [x] `stash-janitor files status` + `stash-janitor files report`
+19. [x] `stash-janitor files apply` — Phase 1: report-only default. Prints proposed
         primary swap + file deletions. No mutations until Phase 1.5.
 
 **Wrap-up**
-20. [ ] README + setup walkthrough for both workflows + merge walkthrough +
+20. [x] README + setup walkthrough for both workflows + merge walkthrough +
         sample `config.yaml`
-21. [ ] (optional) End-to-end smoke test against a throwaway Stash
+21. [x] (optional) End-to-end smoke test against a throwaway Stash
         docker-compose
 
 ## 13. TODO — Phase 1.5
@@ -605,3 +605,32 @@ different metadata" problem.
        has at least one `stash_id`. Skip scenes already in
        `fingerprint_submissions`. Record on success.
 4. [ ] `stash-janitor scenes mark` and `stash-janitor files mark` — persistent user overrides.
+
+## 14. Done outside the original Phase 1 plan
+
+Items shipped as part of Phase 1.x after the original PLAN was written:
+
+- [x] **Filename-info-loss safety net** for workflow A. Adds
+      `scene_group_scenes.filename_quality` (schema v2 with migration),
+      computed via a permissive "contains a YYYY-MM-DD style date" check.
+      Marks groups `needs_review` when the keeper has no date in its
+      filename but a loser does. Verified on real data: caught the
+      `🎄...OnlyFans.mp4` vs `justinepremium_-_2025-12-11_...mp4` case
+      that motivated the feature.
+- [x] **Schema migration framework** — versioned migrations on Open via a
+      switch-per-version. v1 → v2 adds the filename_quality column;
+      framework is ready for v3+.
+- [x] **`stash-janitor config show`** prints the *effective* config (defaults +
+      user overrides) so the user can debug "is my override taking
+      effect?".
+- [x] **Per-loser explanation annotations** in `stash-janitor scenes report`.
+      Each loser now gets a `↳ kept by: <reason>` line showing the
+      first rule the keeper beat it on (e.g. `higher resolution: 1920x1080
+      vs 1280x720`, `has stash-box metadata`, `higher bitrate: 10.4 Mbps
+      vs 3.0 Mbps`). Implemented via `SceneScorer.ExplainPick`.
+- [x] **Path truncation removed** from both scenes and files reports —
+      full filenames are now visible at the cost of longer lines on
+      narrow terminals.
+- [x] **Default filename regex extended** to recognize `_<digits>`
+      duplicate-import suffixes (`_1080p_1.mp4`) and 8K/2K/6K resolution
+      shorthand.
