@@ -183,6 +183,32 @@ func TestProcessSceneGroupFilenameInfoLossSafetyNet(t *testing.T) {
 	}
 }
 
+func TestProcessSceneGroupSafetyNetCatchesNonConventionalDate(t *testing.T) {
+	// Real-world case: keeper has an emoji-decorated junk filename, loser
+	// has a date embedded in the middle (not matching the strict regex
+	// because the date isn't at the start). The loose date check should
+	// still fire the safety net.
+	ctx := context.Background()
+	st := newTestStore(t)
+	sc := newTestScorer(t)
+	runID, _ := st.StartScanRun(ctx, store.WorkflowScenes, nil, nil)
+
+	raw := []stash.Scene{
+		makeScene("76710", false, 1920, 1080, 4_000_000, "h264", 716_000_000,
+			"/data/tmp2/🎄No PPV 🎄 Justine Jakobs 🌽 OnlyFans.mp4", false, 0),
+		makeScene("84184", false, 1920, 1080, 4_000_000, "h264", 716_000_000,
+			"/data/tmp4/justinepremium_-_2025-12-11_BRAND_NEW_bgg_Who_said_pizza_night_had_to_be_boring_2.mp4", false, 0),
+	}
+	sig := store.SceneGroupSignature([]string{"76710", "84184"})
+	got, err := processSceneGroup(ctx, st, sc, runID, sig, raw)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Status != store.StatusNeedsReview {
+		t.Errorf("status = %s, want needs_review (loser has embedded date 2025-12-11, keeper has none)", got.Status)
+	}
+}
+
 func TestProcessSceneGroupNoSafetyNetWhenKeeperHasGoodFilename(t *testing.T) {
 	// Inverse: keeper has a good filename, loser has a junk one. The
 	// safety net should NOT fire — there's no info loss.

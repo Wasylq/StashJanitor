@@ -38,13 +38,6 @@ type SceneScorer struct {
 	codecRank                   map[string]int // lower = better
 	pathPriority                []string
 	flagMetadataQualityConflict bool
-	// filenameRegex is shared with FileScorer (compiled from
-	// cfg.Scoring.Files.FilenameQuality.Pattern). The scene scorer does
-	// NOT use it as a ranking rule — workflow A scoring stays driven by
-	// the cfg.Scoring.Scenes.Rules chain — but it exposes ClassifyFilename
-	// so the scan code can populate the FilenameQuality snapshot field
-	// and run the "filename info loss" safety net.
-	filenameRegex *regexp.Regexp
 }
 
 // NewSceneScorer compiles the rule chain from config. Returns an error if
@@ -55,13 +48,6 @@ func NewSceneScorer(cfg *config.Config) (*SceneScorer, error) {
 		codecRank:                   buildCodecRank(cfg.Scoring.CodecPriority),
 		pathPriority:                cfg.Scoring.PathPriority,
 		flagMetadataQualityConflict: cfg.ReviewPolicy.FlagMetadataQualityConflict,
-	}
-	if pat := cfg.Scoring.Files.FilenameQuality.Pattern; pat != "" {
-		re, err := regexp.Compile(pat)
-		if err != nil {
-			return nil, fmt.Errorf("scoring.files.filename_quality.pattern: %w", err)
-		}
-		s.filenameRegex = re
 	}
 	for _, name := range cfg.Scoring.Scenes.Rules {
 		rule, err := makeSceneRule(name)
@@ -76,14 +62,32 @@ func NewSceneScorer(cfg *config.Config) (*SceneScorer, error) {
 	return s, nil
 }
 
-// ClassifyFilename returns 1 if basename matches the configured filename
-// quality regex, 0 otherwise. Same semantics as FileScorer.ClassifyFilename
-// — both scorers compile the same regex from the same config field.
+// looseDateRegex matches a YYYY-MM-DD style date anywhere in a string.
+// Tolerates `-`, `_`, and `.` as separators between the components.
+var looseDateRegex = regexp.MustCompile(`\d{4}[-._]\d{2}[-._]\d{2}`)
+
+// ClassifyFilename returns 1 if basename appears to encode meaningful
+// information that would be lost if the file were deleted, 0 otherwise.
+//
+// This is INTENTIONALLY different from FileScorer.ClassifyFilename:
+//
+//   - FileScorer asks "does this match my strict convention?" — used to
+//     PICK the best file in workflow B's byte-equivalent file group.
+//   - SceneScorer asks "does this contain ANY structured info?" — used by
+//     the workflow A safety net to detect info-loss risk before auto-
+//     merging two cross-scene duplicates.
+//
+// The safety net needs the looser check because the keeper and the loser
+// might use different naming conventions (e.g. keeper has emoji-decorated
+// title, loser has `<performer>_-_<date>_<title>` instead of
+// `<date>_<performer>-<title>`). A strict convention regex would miss the
+// info-loss risk in those cases.
+//
+// Currently the loose check is "contains a YYYY-MM-DD style date". This is
+// a robust signal because dates are unambiguous and rarely appear in
+// random/junk filenames.
 func (s *SceneScorer) ClassifyFilename(basename string) int {
-	if s.filenameRegex == nil {
-		return 0
-	}
-	if s.filenameRegex.MatchString(basename) {
+	if looseDateRegex.MatchString(basename) {
 		return 1
 	}
 	return 0
