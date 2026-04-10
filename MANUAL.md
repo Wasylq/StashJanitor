@@ -2,29 +2,53 @@
 
 ## Install
 
+**Download a release binary** from the
+[Releases](https://github.com/Wasylq/StashJanitor/releases) page — no
+Go toolchain required. Extract and you're ready.
+
+Or build from source:
 ```sh
-git clone <repo>
+git clone https://github.com/Wasylq/StashJanitor.git
 cd StashJanitor
 go build -o stash-janitor ./cmd/stash-janitor
-
-# Optional: move to your PATH
-sudo mv stash-janitor /usr/local/bin/
 ```
 
-No runtime dependencies. The binary is self-contained (pure-Go SQLite).
+Or via `go install`:
+```sh
+go install github.com/Wasylq/StashJanitor/cmd/stash-janitor@latest
+```
+
+The binary is fully self-contained (pure-Go SQLite, no cgo, no runtime deps).
+Put it wherever you like — a dedicated directory is handy because it also
+creates `config.yaml` and `stash-janitor.sqlite` next to itself.
 
 ## First-time setup
 
 ```sh
-# Generate a config file. Edit the URL to point at your Stash.
+# 1. Generate a config file in the current directory.
 stash-janitor config init
+```
 
-# If your Stash uses an API key:
+This creates `config.yaml` with commented defaults. Open it and set
+your Stash URL:
+
+```yaml
+stash:
+  url: http://your-nas:9999     # ← change this to your Stash address
+  api_key_env: STASH_API_KEY    # reads the API key from this env var
+```
+
+The default is `http://localhost:9999`. If your Stash has no API key
+configured, you can leave `STASH_API_KEY` unset.
+
+```sh
+# 2. (Optional) If your Stash uses an API key:
 export STASH_API_KEY=your-key-here
 ```
 
-The default `config.yaml` points at `http://localhost:9999`.
-Edit `stash.url` if your Stash is elsewhere.
+The config file and the SQLite cache (`stash-janitor.sqlite`) are
+created in whatever directory you run the command from. You can override
+their locations with `--config <path>` and `--db <path>`.
 
 To verify connectivity and see your library at a glance:
 

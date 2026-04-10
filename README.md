@@ -64,28 +64,56 @@ See [MANUAL.md](MANUAL.md) for usage instructions and
 - A few hundred MB of free disk for the SQLite cache (proportional to
   library size — at 60k scenes the DB is ~50 MB)
 
-## Build
+## Install
+
+**Option A: Download a release binary** (no Go required)
+
+Go to the [Releases](https://github.com/Wasylq/StashJanitor/releases)
+page, download the archive for your platform, and extract:
 
 ```sh
-git clone <repo>
+# Linux (amd64)
+tar xzf stash-janitor-v*-linux-amd64.tar.gz
+chmod +x stash-janitor
+
+# macOS (Apple Silicon)
+tar xzf stash-janitor-v*-darwin-arm64.tar.gz
+chmod +x stash-janitor
+
+# Windows — extract the .zip, you get stash-janitor.exe
+```
+
+**Option B: Build from source** (requires Go 1.22+)
+
+```sh
+git clone https://github.com/Wasylq/StashJanitor.git
 cd StashJanitor
 go build -o stash-janitor ./cmd/stash-janitor
 ```
 
-The binary is statically linkable: the SQLite driver is the pure-Go
-[modernc.org/sqlite](https://pkg.go.dev/modernc.org/sqlite), so there is
-no cgo step and no runtime dependency on libsqlite.
+**Option C: `go install`**
+
+```sh
+go install github.com/Wasylq/StashJanitor/cmd/stash-janitor@latest
+```
+
+The binary is fully self-contained (pure-Go SQLite, no cgo, no runtime deps).
 
 ## Quick start
 
 ```sh
-# 1. Generate a config file (you can edit it after).
+# 1. Generate a config file. This creates config.yaml in the current dir.
 ./stash-janitor config init
 
-# 2. Optional: if your Stash has an API key, export it.
+# 2. Edit config.yaml — set your Stash URL:
+#    stash:
+#      url: http://your-nas:9999
+#    (the default is http://localhost:9999)
+
+# 3. Optional: if your Stash has an API key, export it.
 export STASH_API_KEY=...
 
-# 3. See where you're at.
+# 4. See where you're at.
 ./stash-janitor stats
 
 # 4. Scan and review cross-scene duplicates.
