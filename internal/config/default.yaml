@@ -138,7 +138,15 @@ organize:
   #   {id}          — Stash scene ID (guaranteed unique, fallback)
   #
   # Folder separators in the template create subdirectories.
+  #
+  # Performer-first (default — matches the YYYY-MM-DD_Performer-Title convention):
   path_template: "{performer}/{date}_{performer}-{title}_{resolution}.{ext}"
+  #
+  # Studio-first (Whisparr-compatible — organizes by site/studio):
+  # path_template: "{studio}/{date} - {title}/{date}_{performer}-{title}_{resolution}.{ext}"
+  #
+  # Studio-first minimal (simpler, one level deep):
+  # path_template: "{studio}/{date}_{performer}-{title}_{resolution}.{ext}"
 
   # How spaces are rendered in filename components.
   space_char: "."              # "Aimee Waves" → "Aimee.Waves" in filenames

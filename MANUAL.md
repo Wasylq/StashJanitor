@@ -279,9 +279,119 @@ re-scan (`stash-janitor scenes scan`, `stash-janitor files scan`).
 | `apply.scenes.loser_tag` | Tag name for losers (default: `_dedupe_loser`) |
 | `merge.scene_level.*` | How to union metadata during merge (tags: union, title: prefer_keeper, etc.) |
 | `merge.post_merge_file_cleanup.rename_winner_filename` | Rename the winner to the loser's structured basename (default: on) |
+| `organize.base_dir` | Root directory Stash sees (e.g. `/data`) |
+| `organize.path_template` | Template for ideal paths (see Workflow D section) |
+| `organize.space_char` | Space replacement in filenames (default: `.`) |
+| `organize.folder_space_char` | Space replacement in folders (default: ` `) |
+| `organize.performer_strategy` | How to pick primary performer: `first_alphabetical` or `first_listed` |
+| `organize.required_fields` | Fields a scene must have to be moved (default: `[performer, date]`) |
+| `organize.rename_in_place` | Also rename files already in the right folder (default: `true`) |
+| `orphans.write_stash_id_on_apply` | Auto-link stash_ids during orphans apply (default: `false`) |
+| `orphans.write_metadata_on_apply` | Also write title/date from scrape (default: `false`) |
 
 Run `stash-janitor config show` to see the *effective* config after merging defaults
 with your overrides.
+
+---
+
+### Workflow D: Organize — move and rename files by metadata
+
+**Problem:** Files are scattered across performer folders and tmp dirs
+with inconsistent names. You want a clean, browsable structure based
+on the metadata in Stash.
+
+**What stash-janitor does:** Computes an ideal path for every scene using a
+configurable template + Stash metadata. Compares ideal vs actual, then
+proposes moves/renames via Stash's `moveFiles` API.
+
+**Recommended order:** run the other workflows first to maximize metadata:
+```sh
+stash-janitor orphans scan          # find stash-box matches for orphans
+# (link matches in Stash UI via Scene Tagger)
+stash-janitor scenes scan           # find and resolve duplicates
+stash-janitor scenes apply --action merge --commit
+stash-janitor files scan            # clean up multi-file scenes
+stash-janitor files apply --commit
+# NOW organize:
+stash-janitor organize scan
+stash-janitor organize report | less
+stash-janitor organize apply --commit
+```
+
+#### Scan
+
+```sh
+stash-janitor organize scan                    # all scenes (can take a while at 60k)
+stash-janitor organize scan --max-scenes 500   # test with a small sample first
+```
+
+For each scene, stash-janitor checks: does the scene have the required metadata
+fields (performer + date by default)? If yes, compute the ideal path
+from the template. If no, skip (leave the file where it is).
+
+#### Report
+
+```sh
+stash-janitor organize report                    # proposed moves + renames (default)
+stash-janitor organize report --filter all       # everything including skips
+stash-janitor organize report --filter conflict  # two scenes → same target path
+stash-janitor organize report --filter skip      # files without enough metadata
+```
+
+Example output:
+```
+[move] scene 20
+  from: /data/SandraR/2018-11-09_Amber.Chase-Mom.Cures.Milf.Addiction_720p.mp4
+  to:   /data/Amber Chase/2018-11-09_Amber.Chase-Mom.Cures.Milf.Addiction_720p.mp4
+
+[rename] scene 49
+  from: /data/Addie Andrews/2020-02-03_Addie.Andrews-Complicit.Consumption_544p.mp4
+  to:   /data/Addie Andrews/2020-02-03_Addie.Andrews-Complicit.Consumption_720p.mp4
+```
+
+#### Apply
+
+```sh
+stash-janitor organize apply                     # dry-run preview
+stash-janitor organize apply --commit            # interactive YES → moveFiles via Stash
+stash-janitor organize apply --commit --yes      # scripted
+```
+
+#### Templates
+
+The default template matches your naming convention:
+```yaml
+organize:
+  path_template: "{performer}/{date}_{performer}-{title}_{resolution}.{ext}"
+```
+
+Result: `/data/Aimee Waves/2024-12-15_Aimee.Waves-Your.Work.Crush_1080p.mp4`
+
+For **Whisparr compatibility**, uncomment the studio-first template in
+`config.yaml`:
+```yaml
+organize:
+  path_template: "{studio}/{date} - {title}/{date}_{performer}-{title}_{resolution}.{ext}"
+```
+
+Result: `/data/New Sensations/2024-12-15 - Your Work Crush/2024-12-15_Aimee.Waves-Your.Work.Crush_1080p.mp4`
+
+Available template variables:
+
+| Variable | Example | Source |
+|---|---|---|
+| `{performer}` | `Aimee Waves` | Primary performer (first alphabetically) |
+| `{studio}` | `New Sensations` | Studio name from Stash |
+| `{title}` | `Your Work Crush` | Scene title (spaces → `space_char`) |
+| `{date}` | `2024-12-15` | Scene date |
+| `{year}` | `2024` | First 4 chars of date |
+| `{resolution}` | `1080p`, `4k` | Derived from video height |
+| `{ext}` | `mp4` | File extension |
+| `{id}` | `42` | Stash scene ID (guaranteed unique) |
+
+Folder parts use `folder_space_char` (default: space), filename parts
+use `space_char` (default: dot). So `Aimee Waves` becomes the folder
+`Aimee Waves/` but the filename part `Aimee.Waves`.
 
 ## Safety features
 

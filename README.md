@@ -51,6 +51,7 @@ All three workflows work end-to-end against Stash v0.31.0:
 | Filename-to-metadata extraction on merge | ✅ |
 | Stale-cache detection in `stash-janitor stats` | ✅ |
 | Orphans scan progress indicator with ETA | ✅ |
+| `stash-janitor organize scan` / `report` / `apply` | ✅ |
 
 See [MANUAL.md](MANUAL.md) for usage instructions and
 [PLAN.md](PLAN.md) for the design and rationale.
@@ -323,6 +324,33 @@ internal/apply/        — tag, merge, delete, files-prune, orphans-link, rename
 internal/report/       — text + JSON output for all workflows
 internal/confirm/      — interactive YES prompt utility
 ```
+
+## Workflow D — file organization
+
+Moves and renames files on disk (via Stash's `moveFiles` API) so your
+library has a consistent, browsable directory structure based on metadata.
+
+```sh
+./stash-janitor organize scan                     # compute ideal paths for every scene
+./stash-janitor organize report                   # show proposed moves
+./stash-janitor organize report --filter conflict # naming collisions
+./stash-janitor organize apply --commit           # actually move files via Stash
+```
+
+The default template produces your existing convention:
+```
+/data/<Performer>/<date>_<Performer>-<Title>_<resolution>.<ext>
+```
+
+For Whisparr compatibility, switch to a studio-first template in `config.yaml`:
+```yaml
+organize:
+  path_template: "{studio}/{date} - {title}/{date}_{performer}-{title}_{resolution}.{ext}"
+```
+
+Scenes without the required metadata (performer + date by default) are
+skipped and left where they are. Run `stash-janitor orphans scan` + Stash Scene
+Tagger first to maximize metadata coverage, then organize.
 
 ## Interactive review (TUI)
 
