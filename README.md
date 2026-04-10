@@ -3,7 +3,7 @@
 A small CLI for finding and resolving duplicate video scenes in a
 [Stash](https://github.com/stashapp/stash) library, safely.
 
-`stash-janitor` solves two related problems:
+`stash-janitor` solves three related problems:
 
 - **Workflow A — cross-scene duplicates.** Two or more separate Stash scenes
   whose perceptual hashes are similar (the same content stored as different
@@ -11,15 +11,17 @@ A small CLI for finding and resolving duplicate video scenes in a
 - **Workflow B — within-scene multi-file cleanup.** A single Stash scene that
   has more than one file attached because Stash auto-attaches re-detected
   files instead of creating a new scene.
+- **Workflow C — orphan metadata recovery.** Scenes with no stash-box
+  metadata (no `stash_ids`). stash-janitor queries stash-box by phash, finds matches,
+  and links them back so Stash's Scene Tagger can pull the full metadata.
 
-Both workflows fetch their data from Stash, score every candidate against a
-configurable rule chain, persist the decisions to a local SQLite cache, and
-let you review everything before committing any mutation.
+All workflows fetch their data from Stash, score/match every candidate,
+persist decisions to a local SQLite cache, and let you review everything
+before committing any mutation.
 
-> **Default behavior is paranoid.** `apply` is dry-run by default. The
-> destructive `--action merge` requires both `--commit` AND an interactive
-> `YES` confirmation. The within-scene file workflow is report-only in
-> Phase 1.
+> **Default behavior is paranoid.** `apply` is dry-run by default. All
+> destructive actions require both `--commit` AND an interactive `YES`
+> confirmation. `--yes` bypasses the prompt for scripted use.
 
 See [PLAN.md](PLAN.md) for the full design and the rationale behind every
 locked-in decision.
@@ -31,15 +33,23 @@ All three workflows work end-to-end against Stash v0.31.0:
 | Command | Status |
 |---|---|
 | `stash-janitor config init` / `stash-janitor config show` | ✅ |
+| `stash-janitor stats` (library dashboard) | ✅ |
 | `stash-janitor scenes scan` / `status` / `report` | ✅ |
 | `stash-janitor scenes apply --action tag\|merge\|delete` | ✅ |
-| `stash-janitor scenes mark` (persistent overrides) | ✅ |
+| `stash-janitor scenes mark --group N` or `--signature` | ✅ |
 | `stash-janitor files scan` / `status` / `report` | ✅ |
 | `stash-janitor files apply --commit` (primary swap + deleteFiles) | ✅ |
-| `stash-janitor files mark` (persistent overrides) | ✅ |
+| `stash-janitor files mark --scene-id` | ✅ |
 | `stash-janitor orphans scan` / `status` / `report` | ✅ |
+| `stash-janitor orphans scan --endpoint all` (multi-endpoint) | ✅ |
 | `stash-janitor orphans apply --commit` (link to stash-box) | ✅ |
 | `--submit-fingerprints` (all apply commands) | ✅ |
+| Per-loser "kept by: ..." explanations in reports | ✅ |
+| Filename-info-loss safety net (workflow A) | ✅ |
+| Rename-on-merge (preserve loser filename info) | ✅ |
+| Filename-to-metadata extraction on merge | ✅ |
+| Stale-cache detection in `stash-janitor stats` | ✅ |
+| Orphans scan progress indicator with ETA | ✅ |
 
 See [MANUAL.md](MANUAL.md) for usage instructions and
 [PLAN.md](PLAN.md) for the design and rationale.
@@ -70,29 +80,31 @@ no cgo step and no runtime dependency on libsqlite.
 # 1. Generate a config file (you can edit it after).
 ./stash-janitor config init
 
-# 2. Optional: if your Stash has an API key, export it. Otherwise leave
-#    the env var unset.
+# 2. Optional: if your Stash has an API key, export it.
 export STASH_API_KEY=...
 
-# 3. Scan workflow A — cross-scene duplicates.
+# 3. See where you're at.
+./stash-janitor stats
+
+# 4. Scan and review cross-scene duplicates.
 ./stash-janitor scenes scan
+./stash-janitor scenes report --filter decided | less
 
-# 4. See what was found.
-./stash-janitor scenes status
-./stash-janitor scenes report --filter decided
+# 5. Apply (safest first pass: just tag).
+./stash-janitor scenes apply --action tag --commit
 
-# 5. Apply tags (always dry-run by default).
-./stash-janitor scenes apply --action tag           # preview
-./stash-janitor scenes apply --action tag --commit  # actually tag
+# 6. Or go full merge (preserves metadata, renames files, reclaims disk):
+./stash-janitor scenes apply --action merge --commit
 
-# 6. Scan workflow B — multi-file scenes.
+# 7. Clean up multi-file scenes.
 ./stash-janitor files scan
-./stash-janitor files status
-./stash-janitor files report --filter decided
+./stash-janitor files report | less
+./stash-janitor files apply --commit
 
-# 7. (Optional) merge cross-scene duplicates and prune the resulting files.
-./stash-janitor scenes apply --action merge           # preview
-./stash-janitor scenes apply --action merge --commit  # interactive YES prompt
+# 8. Find metadata for orphan scenes via stash-box.
+./stash-janitor orphans scan --max-scenes 500
+./stash-janitor orphans report --filter matched
+./stash-janitor orphans apply --commit
 ```
 
 ## Configuration
@@ -127,7 +139,7 @@ scoring:
       - path_priority
       - mod_time
     filename_quality:
-      pattern: '^\d{4}[-._]\d{2}[-._]\d{2}_.+_(480|540|720|1080|1440|2160|4k)p?\.[A-Za-z0-9]+$'
+      pattern: '^\d{4}[-._]\d{2}[-._]\d{2}_.+_(480|540|720|1080|1440|2160|2880|4320|[2468][kK])p?(_\d+)?\.[A-Za-z0-9]+$'
 
 apply:
   scenes:
@@ -192,20 +204,24 @@ and bulk-delete the ones you agree with.
 ./stash-janitor scenes apply --action merge --commit --yes  # bypass prompt for cron
 ```
 
-Merge mode does the full cross-scene consolidation in five steps per group:
+Merge mode does the full cross-scene consolidation per group:
 
 1. Fetch full metadata for keeper + losers from Stash.
 2. Compute the metadata union per the policy in `merge.scene_level`
    (multi-value fields union, scalar fields prefer keeper, rating100 max,
    organized any-true).
-3. Call `sceneMerge` with the union as the `values` field — Stash's
-   sceneMerge does NOT auto-union scene metadata, so we have to compute
-   it ourselves.
-4. The merged keeper now has every loser's files attached. Run a
-   post-merge file scorer (resolution → bitrate → filename_quality → file_size
-   → mod_time) and pick the best one as primary, then `deleteFiles` the
-   rest from disk.
-5. Mark the group applied.
+3. **Filename metadata extraction**: if the union still has empty title/date
+   but a loser file has a structured filename (e.g. `2024-12-15_Performer-
+   Title_1080p.mp4`), parse it and fill in the keeper's empty fields.
+4. Call `sceneMerge` with the union as the `values` field — Stash's
+   sceneMerge does NOT auto-union scene metadata, so we compute it.
+5. The merged keeper now has every loser's files attached. Pick the best
+   file as primary (resolution → bitrate → filename → file_size → mod_time).
+6. **Rename-on-merge**: if the winning file has a junk basename but a loser
+   had a structured one, rename the winner via `moveFiles` to use the
+   loser's filename (with resolution token swapped to match the winner's
+   actual height).
+7. `deleteFiles` on the rest from disk. Mark the group applied.
 
 Per-group failures don't abort the run — they're captured in the per-group
 report and the loop continues.
@@ -218,17 +234,32 @@ in `pkg/scene/scan.go` in v0.31.0), so all files within a single scene are
 mod_time — tech specs are guaranteed identical.
 
 ```sh
-./stash-janitor files scan                    # paginated find_filter under the hood
+./stash-janitor files scan
 ./stash-janitor files status
-./stash-janitor files report --filter decided
-./stash-janitor files apply                   # report-only in Phase 1
+./stash-janitor files report --filter decided   # each loser shows WHY it lost
+./stash-janitor files apply                     # dry run
+./stash-janitor files apply --commit            # swap primary + delete losers
 ```
 
-The default `filename_quality` regex matches a `YYYY-MM-DD_<anything>_<resolution>.<ext>`
-pattern. Tweak it in `config.yaml` to match your library convention.
+The default `filename_quality` regex matches
+`YYYY-MM-DD_<anything>_<resolution>[_N].<ext>` including import suffixes
+like `_1080p_1.mp4` and resolutions up to 8K.
 
-> **Phase 1 limitation:** workflow B is report-only. The `--commit` path
-> (`sceneUpdate(primary_file_id) + deleteFiles`) lands in Phase 1.5.
+## Workflow C — orphan metadata recovery
+
+Scenes with no `stash_ids` (55% of a typical library) are "orphans". stash-janitor
+queries stash-box by phash to find matches, then links them back to Stash.
+
+```sh
+./stash-janitor orphans scan --max-scenes 500     # start small (stash-box is slow)
+./stash-janitor orphans report --filter matched   # review proposed matches
+./stash-janitor orphans apply --commit            # write stash_ids back
+./stash-janitor orphans scan                      # full library (re-runs skip cache)
+./stash-janitor orphans scan --endpoint all       # query every configured stash-box
+```
+
+After applying, run Stash's built-in Scene Tagger to pull full metadata
+(title, performers, tags, studio) from stash-box for the newly-linked scenes.
 
 ## Safety model
 
@@ -239,13 +270,19 @@ pattern. Tweak it in `config.yaml` to match your library convention.
    interactive `YES` prompt** with a summary of what will happen.
    `--yes` bypasses the prompt for scripted use, but `--commit` is still
    required separately, so a typo cannot trigger destruction.
-4. **Idempotent.** Re-running `apply --commit` is safe — applied groups
+4. **Filename-info-loss safety net.** When the scorer picks a keeper with
+   a junk filename but a loser has a date-bearing structured name, the
+   group is flagged `needs_review` instead of auto-decided. This prevents
+   silently losing information encoded only in filenames.
+5. **Idempotent.** Re-running `apply --commit` is safe — applied groups
    are skipped via `applied_at`.
-5. **No filesystem touches.** Every destructive op goes through Stash's
+6. **No filesystem touches.** Every destructive op goes through Stash's
    GraphQL API, so the container's view of paths is the only one that
    matters. Works seamlessly with NAS / Docker setups.
-6. **API key never logged, never stored in config**, only read from env.
-7. **`needs_review` groups are never applied automatically.**
+7. **API key never logged, never stored in config**, only read from env.
+8. **`needs_review` groups are never applied automatically.**
+9. **Stale-cache detection.** `stash-janitor stats` samples cached scene IDs and
+   warns when they no longer exist in Stash.
 
 ## Tests
 
@@ -274,15 +311,15 @@ Module layout:
 
 ```
 cmd/stash-janitor/main.go        — entry point
-internal/cli/          — cobra command tree
+internal/cli/          — cobra command tree (scenes, files, orphans, stats, config)
 internal/config/       — YAML loader (embedded defaults)
-internal/stash/        — GraphQL client + query catalog
-internal/store/        — SQLite persistence
-internal/scan/         — workflow A/B scan orchestration
+internal/stash/        — GraphQL client + query catalog (v0.31.0)
+internal/store/        — SQLite persistence (schema v4 with migrations)
+internal/scan/         — workflow A/B/C scan orchestration
 internal/decide/       — scene + file scoring engines
-internal/merge/        — metadata union for sceneMerge
-internal/apply/        — tag, merge, files-prune actions
-internal/report/       — text + JSON output
+internal/merge/        — metadata union + filename parser for sceneMerge
+internal/apply/        — tag, merge, delete, files-prune, orphans-link, rename
+internal/report/       — text + JSON output for all workflows
 internal/confirm/      — interactive YES prompt utility
 ```
 

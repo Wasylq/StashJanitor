@@ -26,13 +26,15 @@ export STASH_API_KEY=your-key-here
 The default `config.yaml` points at `http://localhost:9999`.
 Edit `stash.url` if your Stash is elsewhere.
 
-To verify connectivity:
+To verify connectivity and see your library at a glance:
 
 ```sh
-stash-janitor scenes status
-# Should print "No scenes scan has been run yet."
-# If it errors, check the URL and that Stash is running.
+stash-janitor stats
 ```
+
+This shows Stash version, total scenes, library size, percentage with
+metadata, orphan count, and the state of each workflow's local cache.
+It also warns if cached scenes no longer exist in Stash (stale cache).
 
 ## The three workflows
 
@@ -95,14 +97,18 @@ Example output:
 
 #### 3. Override (optional)
 
-If the tool picked wrong, tell it:
+If the tool picked wrong, tell it. You can use the group `#` from the
+report (easier) or the full signature:
 
 ```sh
-# "These aren't actually duplicates."
+# By group number from the report:
+stash-janitor scenes mark --group 224 --as not_duplicate
+
+# Or by full signature:
 stash-janitor scenes mark --signature "22871|83186" --as not_duplicate
 
-# "Keep this specific scene, even though the scorer picked the other one."
-stash-janitor scenes mark --signature "22871|83186" --as force_keeper --keeper 83186
+# Pin a specific keeper (overrides the scorer's pick):
+stash-janitor scenes mark --group 224 --as force_keeper --keeper 83186
 
 # Then re-scan to apply the override:
 stash-janitor scenes scan
@@ -126,9 +132,19 @@ stash-janitor scenes apply --action merge              # preview
 stash-janitor scenes apply --action merge --commit     # interactive YES prompt
 stash-janitor scenes apply --action merge --commit --yes  # scripted/cron
 ```
-Per group: computes a metadata union (tags, performers, stash_ids, play
-history) → calls `sceneMerge` → picks the best file → renames it if a
-loser had a better filename → deletes the rest from disk.
+Per group, the merge pipeline:
+1. Computes a metadata union (tags, performers, stash_ids, urls, play
+   history, rating, organized).
+2. **Filename metadata extraction**: if the keeper has no title/date but a
+   loser file has a structured filename like
+   `2024-12-15_Performer-Title_1080p.mp4`, parses the date and title and
+   fills them in before merging.
+3. Calls `sceneMerge` with the computed union as `values`.
+4. Picks the best file as primary (resolution → bitrate → filename → size).
+5. **Rename-on-merge**: if the winning file has a junk basename but a loser
+   had a structured one, renames the winner via `moveFiles` to use the
+   loser's filename (with the resolution token swapped to match).
+6. Deletes the loser files from disk.
 
 **Delete (destructive — use only when losers have nothing to preserve):**
 ```sh
@@ -158,15 +174,18 @@ and modification time. Picks the best one as primary, deletes the rest.
 ```sh
 stash-janitor files scan
 stash-janitor files status
-stash-janitor files report | less
+stash-janitor files report | less                # each loser shows WHY it lost
 stash-janitor files apply                        # preview
 stash-janitor files apply --commit               # interactive YES → delete losers
 stash-janitor files apply --commit --yes         # scripted
 ```
 
 The filename scoring uses a configurable regex. The default matches your
-`YYYY-MM-DD_Performer-Title_Resolution.ext` convention. Files matching
-the convention win over files that don't.
+`YYYY-MM-DD_Performer-Title_Resolution.ext` convention, including import
+suffixes (`_1080p_1.mp4`) and resolutions up to 8K. Files matching the
+convention win over files that don't. Each loser line in the report shows
+`↳ kept by: matches filename convention (loser does not)` or whichever
+rule decided.
 
 Override a specific scene:
 ```sh
@@ -205,11 +224,18 @@ stash-janitor orphans scan                       # full library (may take 30+ mi
 
 Useful flags:
 - `--endpoint URL` — query a specific stash-box (default: first one in Stash config)
+- `--endpoint all` — query **every** configured stash-box in one pass
 - `--batch-size 50` — bigger batches (faster, heavier on stash-box)
 - `--batch-delay 100ms` — less sleep between batches
 - `--rescan` — re-query previously-looked-up orphans
 
 The endpoint is auto-discovered from Stash's configuration if not passed.
+
+During the scan, a progress line shows processed/total, matched count,
+and estimated time remaining:
+```
+  progress: 500/33249 (2%)  matched: 5  no_match: 395  skipped: 100  elapsed: 42s  eta: 35m
+```
 
 ---
 
@@ -230,6 +256,10 @@ This serves three purposes:
 
 You can delete `stash-janitor.sqlite` at any time and re-scan. All source-of-truth
 data lives in Stash; the SQLite is a read cache and decision journal.
+
+**Stale-cache detection:** `stash-janitor stats` samples a few cached scene IDs
+and warns if any no longer exist in Stash. If you see the warning, just
+re-scan (`stash-janitor scenes scan`, `stash-janitor files scan`).
 
 ## Configuration reference
 
@@ -253,8 +283,31 @@ data lives in Stash; the SQLite is a read cache and decision journal.
 Run `stash-janitor config show` to see the *effective* config after merging defaults
 with your overrides.
 
+## Safety features
+
+- **Filename-info-loss safety net.** When the scorer picks a higher-quality
+  keeper but a loser has a date-bearing structured filename that the keeper
+  doesn't, the group is flagged `needs_review` instead of auto-decided.
+  This prevents silently losing information encoded only in filenames.
+  The check uses a permissive "contains a YYYY-MM-DD style date" test —
+  not the strict convention regex — so it catches non-standard filename
+  formats too.
+
+- **Rename-on-merge.** Even when the keeper file is the right quality
+  choice, it might have a junk filename. The merge pipeline renames it
+  to use the loser's structured basename (with the resolution token
+  swapped) before deleting the losers. Configurable via
+  `merge.post_merge_file_cleanup.rename_winner_filename` (default: on).
+
+- **Filename-to-metadata extraction.** During merge, if neither keeper nor
+  losers have a title or date set in Stash but a loser file matches the
+  `YYYY-MM-DD_Performer-Title_Resolution.ext` convention, the date and
+  title are parsed from the filename and set on the keeper before merging.
+
 ## Tips
 
+- **Run `stash-janitor stats` first** to see your library size, metadata coverage,
+  and the state of each workflow's local cache.
 - **Start with `--action tag`** until you trust the scoring. Tags are
   reversible; merge/delete are not.
 - **Use `--distance 4`** (default). Distance 8 catches more but produces
@@ -264,6 +317,8 @@ with your overrides.
 - **The `--json` flag** on every report/status command makes it easy to
   pipe into `jq` or a script.
 - **Re-scan after changes.** If you delete scenes in Stash's UI, the
-  local cache becomes stale. Just `stash-janitor scenes scan` again — it's fast.
+  local cache becomes stale. `stash-janitor stats` will warn; just re-scan.
 - **`stash-janitor.sqlite` is portable.** Copy it to another machine to browse
   reports offline.
+- **`stash-janitor scenes mark --group N`** is faster than copying signatures. Use
+  the `#N` from the report output directly.
