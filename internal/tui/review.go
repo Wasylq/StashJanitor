@@ -1,15 +1,5 @@
-// Package tui implements the `stash-janitor review` interactive terminal UI for
-// walking through duplicate groups and making per-group decisions.
-//
-// Built on bubbletea + lipgloss. Two modes:
-//
-//   - **List mode**: browse all groups, see status/reclaimable/paths at a glance
-//   - **Detail mode**: drill into one group, see every scene with per-loser
-//     "kept by" explanations, take actions (accept, override, dismiss, etc.)
-//
-// Actions write UserDecisions to the store and update the in-memory state
-// immediately. The decisions take effect on the next `stash-janitor scenes scan`
-// (which re-reads user_decisions when assigning roles).
+// Package tui implements the `stash-janitor review` interactive terminal UI
+// for walking through duplicate groups and making per-group decisions.
 package tui
 
 import (
@@ -34,55 +24,66 @@ type Model struct {
 	mode   string // "list" or "detail"
 
 	// Detail mode: if override is active, the user picks a scene by number.
-	overrideMode  bool
+	overrideMode   bool
 	overrideCursor int
 
 	// Terminal dimensions.
 	width  int
 	height int
 
-	// Status flash message (e.g. "marked not_duplicate").
+	// Status flash message.
 	message string
+
+	// Counters — updated after every decision so the status bar is live.
+	decided   int
+	reviewed  int // needs_review
+	applied   int
+	dismissed int
 
 	quitting bool
 }
 
-// NewModel constructs the review TUI model. statuses controls which groups
-// are loaded — pass nil for all, or e.g. ["decided","needs_review"] to
-// focus on actionable groups.
+// NewModel constructs the review TUI model.
 func NewModel(st *store.Store, scorer *decide.SceneScorer, statuses []string) (*Model, error) {
 	groups, err := st.ListSceneGroups(context.Background(), statuses)
 	if err != nil {
 		return nil, err
 	}
-	return &Model{
+	m := &Model{
 		store:  st,
 		scorer: scorer,
 		groups: groups,
 		mode:   "list",
-	}, nil
+	}
+	m.recount()
+	return m, nil
 }
 
-// Init is the bubbletea Init function. We request the terminal size.
-func (m Model) Init() tea.Cmd {
-	return nil
+func (m *Model) recount() {
+	m.decided, m.reviewed, m.applied, m.dismissed = 0, 0, 0, 0
+	for _, g := range m.groups {
+		switch g.Status {
+		case store.StatusDecided:
+			m.decided++
+		case store.StatusNeedsReview:
+			m.reviewed++
+		case store.StatusApplied:
+			m.applied++
+		case store.StatusDismissed:
+			m.dismissed++
+		}
+	}
 }
 
-// Update handles key presses and window resizes.
+func (m Model) Init() tea.Cmd { return nil }
+
 func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	switch msg := msg.(type) {
 	case tea.WindowSizeMsg:
 		m.width = msg.Width
 		m.height = msg.Height
-		return m, nil
-
 	case tea.KeyMsg:
 		m.message = ""
-
-		if m.quitting {
-			return m, tea.Quit
-		}
-
 		switch m.mode {
 		case "list":
 			return m.updateList(msg)
@@ -141,20 +142,43 @@ func (m Model) updateDetail(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m, tea.Quit
 	case "esc", "backspace":
 		m.mode = "list"
+
 	case "a":
-		// Accept auto-pick → mark as decided (no-op if already decided,
-		// but this clears needs_review overrides).
-		m.message = m.applyDecision(g, "dismiss", "", "accepted auto-pick")
-		m.advanceToNext()
-	case "n":
-		m.message = m.applyDecision(g, "not_duplicate", "", "")
-		m.advanceToNext()
-	case "d":
-		m.message = m.applyDecision(g, "dismiss", "", "")
-		m.advanceToNext()
+		// Accept only works on DECIDED groups (confirm the scorer's pick).
+		// For needs_review, you must pick a keeper first with 'o'.
+		if g.Status == store.StatusNeedsReview {
+			m.message = "This group needs review — press 'o' to pick a keeper, or 'n' for not_duplicate"
+		} else {
+			// Already decided: confirm the scorer's pick. Find the current
+			// keeper and save a force_keeper override.
+			if keeper := m.findKeeper(g); keeper != nil {
+				m.message = m.applyDecision(g, "force_keeper", keeper.SceneID, "accepted auto-pick via review")
+				g.Status = store.StatusDecided
+				m.recount()
+			} else {
+				m.message = "No keeper found — press 'o' to pick one"
+			}
+			m.advanceToNext()
+		}
+
 	case "o":
+		// Override: pick a keeper manually. Works for both decided and
+		// needs_review groups.
 		m.overrideMode = true
 		m.overrideCursor = 0
+
+	case "n":
+		m.message = m.applyDecision(g, "not_duplicate", "", "")
+		g.Status = store.StatusDismissed
+		m.recount()
+		m.advanceToNext()
+
+	case "d":
+		m.message = m.applyDecision(g, "dismiss", "", "")
+		g.Status = store.StatusDismissed
+		m.recount()
+		m.advanceToNext()
+
 	case "j", "down":
 		m.advanceToNext()
 	case "k", "up":
@@ -180,6 +204,8 @@ func (m Model) updateOverride(msg tea.KeyMsg, g *store.SceneGroup) (tea.Model, t
 	case "enter":
 		chosen := g.Scenes[m.overrideCursor]
 		m.message = m.applyDecision(g, "force_keeper", chosen.SceneID, "")
+		g.Status = store.StatusDecided
+		m.recount()
 		m.overrideMode = false
 		m.advanceToNext()
 	}
@@ -210,18 +236,21 @@ func (m *Model) applyDecision(g *store.SceneGroup, decision, keeperID, notes str
 	if err := m.store.PutUserDecision(context.Background(), d); err != nil {
 		return fmt.Sprintf("error: %v", err)
 	}
-	return fmt.Sprintf("group #%d → %s", g.ID, decision)
+	action := decision
+	if keeperID != "" {
+		action += " (keeper=" + keeperID + ")"
+	}
+	return fmt.Sprintf("group #%d → %s ✓", g.ID, action)
 }
 
 // View renders the current state.
 func (m Model) View() string {
 	if m.quitting {
-		return ""
+		return m.quitMessage()
 	}
 	if len(m.groups) == 0 {
 		return "No groups to review. Run `stash-janitor scenes scan` first.\n\nPress q to quit."
 	}
-
 	switch m.mode {
 	case "detail":
 		return m.viewDetail()
@@ -230,18 +259,33 @@ func (m Model) View() string {
 	}
 }
 
+func (m Model) quitMessage() string {
+	changes := m.decided + m.dismissed
+	if changes == 0 {
+		return ""
+	}
+	return fmt.Sprintf(
+		"\nSaved %d decisions. Next steps:\n"+
+			"  1. stash-janitor scenes scan          (re-scan to apply your decisions)\n"+
+			"  2. stash-janitor scenes status         (verify decided/dismissed counts)\n"+
+			"  3. stash-janitor scenes apply --action merge --commit   (execute)\n\n",
+		changes,
+	)
+}
+
 // ----- styles -----
 
 var (
-	styleTitle    = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
-	styleKeep     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
-	styleDrop     = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
+	styleTitle     = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("12"))
+	styleKeep      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("10"))
+	styleDrop      = lipgloss.NewStyle().Foreground(lipgloss.Color("9"))
 	styleUndecided = lipgloss.NewStyle().Foreground(lipgloss.Color("11"))
-	styleDim      = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
-	styleStatus   = lipgloss.NewStyle().Background(lipgloss.Color("236")).Padding(0, 1)
-	styleMsg      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
-	styleSelected = lipgloss.NewStyle().Background(lipgloss.Color("237"))
-	styleOverSel  = lipgloss.NewStyle().Background(lipgloss.Color("22")).Bold(true)
+	styleDim       = lipgloss.NewStyle().Foreground(lipgloss.Color("8"))
+	styleStatus    = lipgloss.NewStyle().Background(lipgloss.Color("236")).Padding(0, 1)
+	styleMsg       = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("14"))
+	styleWarn      = lipgloss.NewStyle().Bold(true).Foreground(lipgloss.Color("11"))
+	styleSelected  = lipgloss.NewStyle().Background(lipgloss.Color("237"))
+	styleOverSel   = lipgloss.NewStyle().Background(lipgloss.Color("22")).Bold(true)
 )
 
 // ----- list view -----
@@ -252,7 +296,6 @@ func (m Model) viewList() string {
 	b.WriteString(styleTitle.Render("stash-janitor review — scenes"))
 	b.WriteString(fmt.Sprintf("  (%d groups)\n\n", len(m.groups)))
 
-	// Determine visible window.
 	maxVisible := max(1, m.height-6)
 	start := max(0, m.cursor-maxVisible/2)
 	end := min(start+maxVisible, len(m.groups))
@@ -271,25 +314,25 @@ func (m Model) viewList() string {
 		b.WriteString(line + "\n")
 	}
 
-	// Status bar.
 	b.WriteString("\n")
 	b.WriteString(m.statusBar())
-
 	if m.message != "" {
 		b.WriteString("\n")
 		b.WriteString(styleMsg.Render(m.message))
 	}
-
 	return b.String()
 }
 
 func (m Model) formatListLine(g *store.SceneGroup) string {
-	status := g.Status
 	var reclaimable int64
 	for _, s := range g.Scenes {
 		if s.Role == store.RoleLoser {
 			reclaimable += s.FileSize
 		}
+	}
+	status := g.Status
+	if status == store.StatusDismissed {
+		status = styleDim.Render(status)
 	}
 	return fmt.Sprintf("#%-4d  %-13s  %d scenes  %8s  %s",
 		g.ID, status, len(g.Scenes),
@@ -327,7 +370,6 @@ func (m Model) viewDetail() string {
 		}
 		b.WriteString(line + "\n")
 
-		// Show explanation for losers.
 		if s.Role == store.RoleLoser && m.scorer != nil {
 			keeper := m.findKeeper(g)
 			if keeper != nil {
@@ -340,19 +382,20 @@ func (m Model) viewDetail() string {
 
 	b.WriteString("\n")
 	if m.overrideMode {
-		b.WriteString(styleMsg.Render("OVERRIDE: ↑↓ to select, Enter to confirm, Esc to cancel") + "\n")
+		b.WriteString(styleMsg.Render("PICK KEEPER: ↑↓ to select, Enter to confirm, Esc to cancel") + "\n")
+	} else if g.Status == store.StatusNeedsReview {
+		b.WriteString(styleWarn.Render("  NEEDS REVIEW — press 'o' to pick which scene to keep") + "\n")
+		b.WriteString(styleDim.Render("  o=pick keeper  n=not_duplicate  d=dismiss  ↓=skip  Esc=back") + "\n")
 	} else {
-		b.WriteString(styleDim.Render("  a=accept  o=override keeper  n=not_duplicate  d=dismiss  ↓=next  Esc=back") + "\n")
+		b.WriteString(styleDim.Render("  a=accept  o=change keeper  n=not_duplicate  d=dismiss  ↓=next  Esc=back") + "\n")
 	}
 
 	b.WriteString("\n")
 	b.WriteString(m.statusBar())
-
 	if m.message != "" {
 		b.WriteString("\n")
 		b.WriteString(styleMsg.Render(m.message))
 	}
-
 	return b.String()
 }
 
@@ -404,30 +447,21 @@ func (m Model) findKeeper(g *store.SceneGroup) *store.SceneGroupScene {
 // ----- status bar -----
 
 func (m Model) statusBar() string {
-	decided, needsReview, applied, dismissed, total := 0, 0, 0, 0, len(m.groups)
 	var reclaimable int64
 	for _, g := range m.groups {
-		switch g.Status {
-		case store.StatusDecided:
-			decided++
+		if g.Status == store.StatusDecided {
 			for _, s := range g.Scenes {
 				if s.Role == store.RoleLoser {
 					reclaimable += s.FileSize
 				}
 			}
-		case store.StatusNeedsReview:
-			needsReview++
-		case store.StatusApplied:
-			applied++
-		case store.StatusDismissed:
-			dismissed++
 		}
 	}
 
 	bar := fmt.Sprintf(
 		" %d/%d | decided:%d review:%d applied:%d dismissed:%d | reclaimable: %s ",
-		m.cursor+1, total,
-		decided, needsReview, applied, dismissed,
+		m.cursor+1, len(m.groups),
+		m.decided, m.reviewed, m.applied, m.dismissed,
 		confirm.HumanBytes(reclaimable),
 	)
 	return styleStatus.Render(bar)
