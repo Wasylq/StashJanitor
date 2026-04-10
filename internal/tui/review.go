@@ -246,7 +246,7 @@ func (m *Model) applyDecision(g *store.SceneGroup, decision, keeperID, notes str
 // View renders the current state.
 func (m Model) View() string {
 	if m.quitting {
-		return m.quitMessage()
+		return "" // quit message is printed by the CLI after alt-screen exits
 	}
 	if len(m.groups) == 0 {
 		return "No groups to review. Run `stash-janitor scenes scan` first.\n\nPress q to quit."
@@ -259,16 +259,19 @@ func (m Model) View() string {
 	}
 }
 
-func (m Model) quitMessage() string {
+// QuitMessage returns the post-exit message. Exported so the CLI can
+// print it AFTER bubbletea restores the normal terminal (the alt-screen
+// swallows anything rendered inside View on quit).
+func (m Model) QuitMessage() string {
 	changes := m.decided + m.dismissed
 	if changes == 0 {
-		return ""
+		return "\nNo decisions made. Your groups are unchanged.\n\n"
 	}
 	return fmt.Sprintf(
 		"\nSaved %d decisions. Next steps:\n"+
-			"  1. stash-janitor scenes scan          (re-scan to apply your decisions)\n"+
-			"  2. stash-janitor scenes status         (verify decided/dismissed counts)\n"+
-			"  3. stash-janitor scenes apply --action merge --commit   (execute)\n\n",
+			"  1. stash-janitor scenes scan                              (re-scan to apply your decisions)\n"+
+			"  2. stash-janitor scenes status                            (verify decided/dismissed counts)\n"+
+			"  3. stash-janitor scenes apply --action merge --commit     (execute merges and reclaim disk)\n\n",
 		changes,
 	)
 }

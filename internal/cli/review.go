@@ -73,8 +73,17 @@ func runReview(cmd *cobra.Command, args []string) error {
 	}
 
 	p := tea.NewProgram(model, tea.WithAltScreen())
-	if _, err := p.Run(); err != nil {
+	finalModel, err := p.Run()
+	if err != nil {
 		return err
+	}
+
+	// Print the quit message AFTER bubbletea exits the alt-screen,
+	// so the user actually sees it on their normal terminal.
+	if m, ok := finalModel.(tui.Model); ok {
+		if msg := m.QuitMessage(); msg != "" {
+			fmt.Fprint(cmd.OutOrStdout(), msg)
+		}
 	}
 	return nil
 }
