@@ -49,6 +49,7 @@ See PLAN.md for the full design.`,
 	root.AddCommand(newFilesCmd())
 	root.AddCommand(newOrphansCmd())
 	root.AddCommand(newStatsCmd())
+	root.AddCommand(newReviewCmd())
 
 	return root
 }
