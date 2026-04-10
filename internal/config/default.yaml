@@ -140,6 +140,23 @@ stash_box_fingerprints:
   enabled: false
 
 orphans:
+  # === Scan tuning ===
+  # These are also settable via CLI flags (which override config values).
+
+  # How many scene IDs to bundle into one scrapeMultiScenes call.
+  # Larger = fewer HTTP calls but heavier per call on stash-box.
+  batch_size: 20
+
+  # Sleep between batches. Controls how aggressively we hit stash-box.
+  # Stash itself also rate-limits per max_requests_per_minute, so this
+  # is a soft limit on our side.
+  #   100ms  = aggressive (~10 batches/sec)
+  #   250ms  = moderate (default, ~4 batches/sec)
+  #   500ms  = gentle
+  #   1s     = very conservative
+  batch_delay: 250ms
+
+  # === Apply behavior ===
   # By default, stash-janitor orphans is purely a DISCOVERY tool: scan finds
   # matches, report shows them, and YOU handle the actual linking in
   # Stash's UI (Scene Tagger). No mutations are made to Stash.

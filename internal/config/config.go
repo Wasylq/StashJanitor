@@ -53,8 +53,10 @@ type OrganizeConfig struct {
 }
 
 type OrphansConfig struct {
-	WriteStashIDOnApply  bool `yaml:"write_stash_id_on_apply"`
-	WriteMetadataOnApply bool `yaml:"write_metadata_on_apply"`
+	BatchSize            int    `yaml:"batch_size"`
+	BatchDelay           string `yaml:"batch_delay"`
+	WriteStashIDOnApply  bool   `yaml:"write_stash_id_on_apply"`
+	WriteMetadataOnApply bool   `yaml:"write_metadata_on_apply"`
 }
 
 type Stash struct {

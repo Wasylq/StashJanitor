@@ -63,9 +63,9 @@ unless --rescan is set.`,
 	}
 	scanCmd.Flags().StringVar(&flagOrphansScanEndpoint, "endpoint", "", "stash-box endpoint URL (default: first one configured in Stash)")
 	scanCmd.Flags().IntVar(&flagOrphansScanPerPage, "per-page", 100, "page size for findScenes pagination")
-	scanCmd.Flags().IntVar(&flagOrphansScanBatchSize, "batch-size", 20, "scenes per scrapeMultiScenes call")
+	scanCmd.Flags().IntVar(&flagOrphansScanBatchSize, "batch-size", 0, "scenes per scrapeMultiScenes call (default from config, or 20)")
 	scanCmd.Flags().IntVar(&flagOrphansScanMaxScenes, "max-scenes", 0, "stop after processing N orphans (0 = no limit)")
-	scanCmd.Flags().DurationVar(&flagOrphansScanBatchDelay, "batch-delay", 250*time.Millisecond, "sleep between batches as a soft rate limit")
+	scanCmd.Flags().DurationVar(&flagOrphansScanBatchDelay, "batch-delay", 0, "sleep between batches (default from config, or 250ms)")
 	scanCmd.Flags().BoolVar(&flagOrphansScanRescan, "rescan", false, "re-query orphans we've already looked up before")
 
 	statusCmd := &cobra.Command{
@@ -96,19 +96,31 @@ unless --rescan is set.`,
 }
 
 func runOrphansScan(cmd *cobra.Command, args []string) error {
-	_, st, client, cleanup, err := loadConfigAndStore()
+	cfg, st, client, cleanup, err := loadConfigAndStore()
 	if err != nil {
 		return err
 	}
 	defer cleanup()
 
+	// CLI flags override config values; config values override built-in defaults.
+	batchSize := flagOrphansScanBatchSize
+	if batchSize == 0 && cfg.Orphans.BatchSize > 0 {
+		batchSize = cfg.Orphans.BatchSize
+	}
+	batchDelay := flagOrphansScanBatchDelay
+	if batchDelay == 0 && cfg.Orphans.BatchDelay != "" {
+		if parsed, err := time.ParseDuration(cfg.Orphans.BatchDelay); err == nil {
+			batchDelay = parsed
+		}
+	}
+
 	ctx := context.Background()
 	res, err := scan.Orphans(ctx, client, st, scan.OrphansOptions{
 		Endpoint:       flagOrphansScanEndpoint,
 		PerPage:        flagOrphansScanPerPage,
-		BatchSize:      flagOrphansScanBatchSize,
+		BatchSize:      batchSize,
 		MaxScenes:      flagOrphansScanMaxScenes,
-		BatchDelay:     flagOrphansScanBatchDelay,
+		BatchDelay:     batchDelay,
 		Rescan:         flagOrphansScanRescan,
 		ProgressWriter: cmd.ErrOrStderr(),
 	})
