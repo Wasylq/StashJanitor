@@ -212,6 +212,43 @@ func executeOneMerge(
 	}
 	report.UnionedFields = union.Diffs
 
+	// Step 2b: filename metadata extraction. If the union still has empty
+	// title/date (neither keeper nor losers had them in Stash), try to
+	// parse them from the files' basenames. This is a last-resort source
+	// that catches the common case where the filename IS the metadata.
+	if union.Vals == nil {
+		union.Vals = &stash.SceneUpdateVals{}
+	}
+	allFiles := collectAllFiles(keeper, losers)
+	if md := merge.ExtractMetadataFromFiles(allFiles); md != nil {
+		if union.Vals.Title == nil && keeper.Title == "" && md.Title != "" {
+			s := md.Title
+			union.Vals.Title = &s
+			union.Diffs = append(union.Diffs, merge.FieldDiff{
+				Field: "title", Action: "set (from filename)", Details: truncateStr(md.Title, 60),
+			})
+		}
+		if union.Vals.Date == nil && keeper.Date == "" && md.Date != "" {
+			s := md.Date
+			union.Vals.Date = &s
+			union.Diffs = append(union.Diffs, merge.FieldDiff{
+				Field: "date", Action: "set (from filename)", Details: md.Date,
+			})
+		}
+	}
+	// If we didn't actually set anything, reset Vals to nil so the
+	// sceneMerge call doesn't send an empty values block.
+	if union.Vals.Title == nil && union.Vals.Date == nil &&
+		union.Vals.TagIDs == nil && union.Vals.PerformerIDs == nil &&
+		union.Vals.URLs == nil && union.Vals.StashIDs == nil &&
+		union.Vals.GalleryIDs == nil && union.Vals.Details == nil &&
+		union.Vals.Director == nil && union.Vals.Code == nil &&
+		union.Vals.StudioID == nil && union.Vals.Rating100 == nil &&
+		union.Vals.Organized == nil {
+		union.Vals = nil
+	}
+	report.UnionedFields = union.Diffs
+
 	// Step 3: call sceneMerge with the computed values.
 	srcIDs := make([]string, 0, len(losers))
 	for _, l := range losers {
@@ -297,6 +334,25 @@ func executeOneMerge(
 	report.FilesDeletedCount = len(loserFileIDs)
 
 	return nil
+}
+
+// collectAllFiles aggregates every VideoFile from the keeper and losers
+// into a single slice, used by filename metadata extraction which scans all
+// files for the first parseable basename.
+func collectAllFiles(keeper *stash.Scene, losers []*stash.Scene) []stash.VideoFile {
+	out := make([]stash.VideoFile, 0, len(keeper.Files))
+	out = append(out, keeper.Files...)
+	for _, l := range losers {
+		out = append(out, l.Files...)
+	}
+	return out
+}
+
+func truncateStr(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	return s[:n-3] + "..."
 }
 
 // pickRenameTarget chooses a target basename for the winner file based on

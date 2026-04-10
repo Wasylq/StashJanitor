@@ -104,12 +104,13 @@ func runOrphansScan(cmd *cobra.Command, args []string) error {
 
 	ctx := context.Background()
 	res, err := scan.Orphans(ctx, client, st, scan.OrphansOptions{
-		Endpoint:   flagOrphansScanEndpoint,
-		PerPage:    flagOrphansScanPerPage,
-		BatchSize:  flagOrphansScanBatchSize,
-		MaxScenes:  flagOrphansScanMaxScenes,
-		BatchDelay: flagOrphansScanBatchDelay,
-		Rescan:     flagOrphansScanRescan,
+		Endpoint:       flagOrphansScanEndpoint,
+		PerPage:        flagOrphansScanPerPage,
+		BatchSize:      flagOrphansScanBatchSize,
+		MaxScenes:      flagOrphansScanMaxScenes,
+		BatchDelay:     flagOrphansScanBatchDelay,
+		Rescan:         flagOrphansScanRescan,
+		ProgressWriter: cmd.ErrOrStderr(),
 	})
 	if err != nil {
 		return err

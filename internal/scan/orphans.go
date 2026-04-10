@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"log/slog"
 	"path/filepath"
 	"strings"
@@ -17,7 +18,7 @@ import (
 type OrphansOptions struct {
 	// Endpoint is the stash-box endpoint to query. If empty, the scanner
 	// auto-discovers via Stash's configuration query and uses the first
-	// available.
+	// available. Use "all" to query every configured endpoint.
 	Endpoint string
 
 	// PerPage is the orphan-discovery page size (findScenes pagination).
@@ -39,6 +40,10 @@ type OrphansOptions struct {
 	// Rescan, when true, re-queries orphans we've already looked up
 	// before. Default false: we skip them.
 	Rescan bool
+
+	// ProgressWriter, when non-nil, receives progress updates during the
+	// scan. The writer is used for \r-based in-place updates on a tty.
+	ProgressWriter io.Writer
 }
 
 // OrphansResult is the per-run summary returned by Orphans.
@@ -74,7 +79,11 @@ func Orphans(ctx context.Context, c *stash.Client, st *store.Store, opts Orphans
 		opts.BatchDelay = 250 * time.Millisecond
 	}
 
-	// Pick an endpoint.
+	// Pick endpoint(s).
+	if opts.Endpoint == "all" {
+		return orphansMultiEndpoint(ctx, c, st, opts)
+	}
+
 	endpoint := opts.Endpoint
 	if endpoint == "" {
 		boxes, err := c.StashBoxes(ctx)
@@ -96,6 +105,28 @@ func Orphans(ctx context.Context, c *stash.Client, st *store.Store, opts Orphans
 	res := &OrphansResult{ScanRunID: runID, Endpoint: endpoint}
 	page := 1
 	totalOrphans := -1
+	scanStart := time.Now()
+
+	printProgress := func() {
+		if opts.ProgressWriter == nil || totalOrphans <= 0 {
+			return
+		}
+		pct := float64(res.OrphansSeen) / float64(totalOrphans) * 100
+		elapsed := time.Since(scanStart).Round(time.Second)
+		var eta string
+		if res.OrphansSeen > 0 {
+			remaining := time.Duration(float64(elapsed) / float64(res.OrphansSeen) * float64(totalOrphans-res.OrphansSeen))
+			eta = remaining.Round(time.Second).String()
+		} else {
+			eta = "?"
+		}
+		fmt.Fprintf(opts.ProgressWriter,
+			"\r  progress: %d/%d (%.0f%%)  matched: %d  no_match: %d  skipped: %d  elapsed: %s  eta: %s     ",
+			res.OrphansSeen, totalOrphans, pct,
+			res.Matched, res.NoMatch, res.Skipped,
+			elapsed, eta,
+		)
+	}
 
 	// Buffer to accumulate scenes until we hit BatchSize, then submit.
 	pending := make([]stash.Scene, 0, opts.BatchSize)
@@ -144,6 +175,8 @@ func Orphans(ctx context.Context, c *stash.Client, st *store.Store, opts Orphans
 			}
 		}
 		pending = pending[:0]
+
+		printProgress()
 
 		// Rate limit between batches.
 		if opts.BatchDelay > 0 {
@@ -212,10 +245,46 @@ func Orphans(ctx context.Context, c *stash.Client, st *store.Store, opts Orphans
 	if err := flushBatch(); err != nil {
 		return nil, err
 	}
+	// Clear the progress line before the final summary.
+	if opts.ProgressWriter != nil {
+		fmt.Fprint(opts.ProgressWriter, "\r\033[K")
+	}
 	if err := st.FinishScanRun(ctx, runID, res.OrphansSeen); err != nil {
 		return nil, fmt.Errorf("finishing scan run: %w", err)
 	}
 	return res, nil
+}
+
+// orphansMultiEndpoint discovers all configured stash-box endpoints and
+// runs the scan against each, aggregating results into one OrphansResult.
+func orphansMultiEndpoint(ctx context.Context, c *stash.Client, st *store.Store, opts OrphansOptions) (*OrphansResult, error) {
+	boxes, err := c.StashBoxes(ctx)
+	if err != nil {
+		return nil, fmt.Errorf("discovering stash-box endpoints: %w", err)
+	}
+	if len(boxes) == 0 {
+		return nil, errors.New("no stash-box endpoints configured in Stash")
+	}
+	slog.Info("--endpoint all: will query every configured stash-box", "count", len(boxes))
+
+	combined := &OrphansResult{}
+	for _, box := range boxes {
+		slog.Info("scanning endpoint", "endpoint", box.Endpoint, "name", box.Name)
+		perEndpoint := opts
+		perEndpoint.Endpoint = box.Endpoint
+		res, err := Orphans(ctx, c, st, perEndpoint)
+		if err != nil {
+			slog.Error("endpoint failed; continuing with next", "endpoint", box.Endpoint, "error", err)
+			continue
+		}
+		combined.ScanRunID = res.ScanRunID
+		combined.Endpoint = "all"
+		combined.OrphansSeen += res.OrphansSeen
+		combined.Matched += res.Matched
+		combined.NoMatch += res.NoMatch
+		combined.Skipped += res.Skipped
+	}
+	return combined, nil
 }
 
 // orphanSnapshot builds the snapshot fields of an OrphanLookup from a

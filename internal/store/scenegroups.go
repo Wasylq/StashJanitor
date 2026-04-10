@@ -160,6 +160,26 @@ func (s *Store) ListSceneGroups(ctx context.Context, statuses []string) ([]*Scen
 	return out, nil
 }
 
+// GetSceneGroupByID returns a scene group by its primary key (the #N
+// shown in the report). Used by `stash-janitor scenes mark --group N` so the user
+// doesn't have to copy the full signature.
+func (s *Store) GetSceneGroupByID(ctx context.Context, id int64) (*SceneGroup, error) {
+	row := s.db.QueryRowContext(ctx,
+		`SELECT id, scan_run_id, signature, status,
+		        COALESCE(decision_reason, ''), decided_at, applied_at
+		 FROM scene_groups WHERE id = ?`,
+		id,
+	)
+	g, err := scanSceneGroup(row)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.loadSceneGroupScenes(ctx, g); err != nil {
+		return nil, err
+	}
+	return g, nil
+}
+
 // MarkSceneGroupApplied sets applied_at on a group, used by the apply
 // commands to make repeated apply runs idempotent.
 func (s *Store) MarkSceneGroupApplied(ctx context.Context, id int64) error {

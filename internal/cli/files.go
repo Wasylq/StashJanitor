@@ -164,7 +164,7 @@ func runFilesStatus(cmd *cobra.Command, args []string) error {
 }
 
 func runFilesReport(cmd *cobra.Command, args []string) error {
-	_, st, _, cleanup, err := loadConfigAndStore()
+	cfg, st, _, cleanup, err := loadConfigAndStore()
 	if err != nil {
 		return err
 	}
@@ -178,7 +178,11 @@ func runFilesReport(cmd *cobra.Command, args []string) error {
 	if flagFilesReportJSON {
 		return report.PrintFilesReportJSON(out, groups)
 	}
-	return report.PrintFilesReport(out, groups)
+	var explain report.ExplainFileFn
+	if scorer, err := decide.NewFileScorer(cfg); err == nil {
+		explain = scorer.ExplainFilePick
+	}
+	return report.PrintFilesReport(out, groups, explain)
 }
 
 func runFilesApply(cmd *cobra.Command, args []string) error {

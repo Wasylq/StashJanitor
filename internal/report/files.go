@@ -132,8 +132,12 @@ func ListFilesReport(ctx context.Context, st *store.Store, filter ScenesReportFi
 	return st.ListFileGroups(ctx, statuses)
 }
 
+// ExplainFileFn is the callback PrintFilesReport uses to annotate each
+// loser line. Pass nil to disable explanations.
+type ExplainFileFn func(winner, loser *store.FileGroupFile) string
+
 // PrintFilesReport renders the per-scene report for workflow B.
-func PrintFilesReport(w io.Writer, groups []*store.FileGroup) error {
+func PrintFilesReport(w io.Writer, groups []*store.FileGroup, explain ExplainFileFn) error {
 	if len(groups) == 0 {
 		_, err := io.WriteString(w, "(no multi-file scenes match the filter)\n")
 		return err
@@ -152,8 +156,18 @@ func PrintFilesReport(w io.Writer, groups []*store.FileGroup) error {
 			fmt.Fprintf(&b, "    applied:   %s\n", g.AppliedAt.Local().Format(time.RFC3339))
 		}
 
+		// Find keeper for per-loser explanations.
+		keeperIdx := -1
+		for j := range g.Files {
+			if g.Files[j].Role == store.RoleKeeper {
+				keeperIdx = j
+				break
+			}
+		}
+
 		var loserBytes int64
-		for _, f := range g.Files {
+		for j := range g.Files {
+			f := &g.Files[j]
 			marker := "       "
 			switch f.Role {
 			case store.RoleKeeper:
@@ -175,6 +189,11 @@ func PrintFilesReport(w io.Writer, groups []*store.FileGroup) error {
 				f.Path,
 				fnFlag,
 			)
+			if f.Role == store.RoleLoser && explain != nil && keeperIdx >= 0 {
+				if reason := explain(&g.Files[keeperIdx], f); reason != "" {
+					fmt.Fprintf(&b, "                ↳ kept by: %s\n", reason)
+				}
+			}
 		}
 		if loserBytes > 0 {
 			fmt.Fprintf(&b, "    reclaimable: %s\n", confirm.HumanBytes(loserBytes))

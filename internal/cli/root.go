@@ -48,6 +48,7 @@ See PLAN.md for the full design.`,
 	root.AddCommand(newScenesCmd())
 	root.AddCommand(newFilesCmd())
 	root.AddCommand(newOrphansCmd())
+	root.AddCommand(newStatsCmd())
 
 	return root
 }

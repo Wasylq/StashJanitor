@@ -548,6 +548,50 @@ func (c *Client) SetSceneStashIDs(ctx context.Context, sceneID string, stashIDs 
 
 const versionQuery = `{ version { version build_time } }`
 
+const libraryStatsQuery = `
+{
+  stats {
+    scene_count
+    scenes_size
+    scenes_duration
+  }
+  findScenes(filter: {per_page: 0}, scene_filter: {stash_id_count: {value: 0, modifier: GREATER_THAN}}) {
+    count
+  }
+}
+`
+
+// LibraryStats holds quick top-level numbers about the user's Stash library.
+type LibraryStats struct {
+	SceneCount     int     `json:"scene_count"`
+	ScenesSizeGB   float64 `json:"scenes_size_gb"`
+	ScenesDuration float64 `json:"scenes_duration"`
+	WithMetadata   int     `json:"with_metadata"` // scenes that have at least one stash_id
+}
+
+// LibraryStats fetches aggregate counts from Stash. Used by `stash-janitor stats`.
+func (c *Client) LibraryStats(ctx context.Context) (*LibraryStats, error) {
+	var resp struct {
+		Stats struct {
+			SceneCount     int     `json:"scene_count"`
+			ScenesSize     float64 `json:"scenes_size"`
+			ScenesDuration float64 `json:"scenes_duration"`
+		} `json:"stats"`
+		FindScenes struct {
+			Count int `json:"count"`
+		} `json:"findScenes"`
+	}
+	if err := c.Execute(ctx, libraryStatsQuery, nil, &resp); err != nil {
+		return nil, fmt.Errorf("libraryStats: %w", err)
+	}
+	return &LibraryStats{
+		SceneCount:     resp.Stats.SceneCount,
+		ScenesSizeGB:   resp.Stats.ScenesSize / (1024 * 1024 * 1024),
+		ScenesDuration: resp.Stats.ScenesDuration,
+		WithMetadata:   resp.FindScenes.Count,
+	}, nil
+}
+
 const configurationStashBoxesQuery = `
 {
   configuration {

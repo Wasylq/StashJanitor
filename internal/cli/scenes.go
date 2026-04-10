@@ -34,6 +34,7 @@ var (
 	flagScenesApplySubmitFprint bool
 
 	flagScenesMarkSignature string
+	flagScenesMarkGroup     int64
 	flagScenesMarkAs        string
 	flagScenesMarkKeeper    string
 	flagScenesMarkNotes     string
@@ -110,10 +111,17 @@ Decisions:
   force_keeper     Override the scorer's pick. Requires --keeper SCENE_ID.
                    Future scans will use the pinned keeper instead of scoring.
 
-Use 'stash-janitor scenes report' to find the signature you want to mark.`,
+Use 'stash-janitor scenes report' to find the group # or signature you want to mark.
+
+You can identify the group either by the # shown in the report:
+  stash-janitor scenes mark --group 224 --as not_duplicate
+
+Or by the full signature:
+  stash-janitor scenes mark --signature "22871|83186" --as not_duplicate`,
 		RunE: runScenesMark,
 	}
 	markCmd.Flags().StringVar(&flagScenesMarkSignature, "signature", "", "group signature (sorted scene IDs joined by |)")
+	markCmd.Flags().Int64Var(&flagScenesMarkGroup, "group", 0, "group # from the report (alternative to --signature)")
 	markCmd.Flags().StringVar(&flagScenesMarkAs, "as", "", "decision to record: not_duplicate|dismiss|force_keeper")
 	markCmd.Flags().StringVar(&flagScenesMarkKeeper, "keeper", "", "scene ID to pin as keeper (required for --as force_keeper)")
 	markCmd.Flags().StringVar(&flagScenesMarkNotes, "notes", "", "optional free-form notes saved with the decision")
@@ -377,9 +385,6 @@ func submitFingerprintsForScenePlan(
 }
 
 func runScenesMark(cmd *cobra.Command, args []string) error {
-	if flagScenesMarkSignature == "" {
-		return fmt.Errorf("--signature is required (run `stash-janitor scenes report` to find one)")
-	}
 	switch flagScenesMarkAs {
 	case "not_duplicate", "dismiss", "force_keeper":
 	case "":
@@ -397,8 +402,23 @@ func runScenesMark(cmd *cobra.Command, args []string) error {
 	}
 	defer cleanup()
 
+	// Resolve the signature: either supplied directly or looked up from
+	// the group # in the report.
+	signature := flagScenesMarkSignature
+	if signature == "" && flagScenesMarkGroup > 0 {
+		g, err := st.GetSceneGroupByID(context.Background(), flagScenesMarkGroup)
+		if err != nil {
+			return fmt.Errorf("group #%d not found in cache: %w", flagScenesMarkGroup, err)
+		}
+		signature = g.Signature
+		fmt.Fprintf(cmd.OutOrStdout(), "resolved group #%d → signature %s\n", flagScenesMarkGroup, signature)
+	}
+	if signature == "" {
+		return fmt.Errorf("--signature or --group is required (run `stash-janitor scenes report` to find one)")
+	}
+
 	d := store.UserDecision{
-		Key:      flagScenesMarkSignature,
+		Key:      signature,
 		Workflow: store.WorkflowScenes,
 		Decision: flagScenesMarkAs,
 		KeeperID: flagScenesMarkKeeper,
@@ -409,7 +429,7 @@ func runScenesMark(cmd *cobra.Command, args []string) error {
 	}
 	fmt.Fprintf(cmd.OutOrStdout(),
 		"recorded: signature=%s decision=%s%s\nThis override applies to future `stash-janitor scenes scan` runs.\n",
-		flagScenesMarkSignature, flagScenesMarkAs,
+		signature, flagScenesMarkAs,
 		map[bool]string{true: " keeper=" + flagScenesMarkKeeper, false: ""}[flagScenesMarkKeeper != ""],
 	)
 	return nil

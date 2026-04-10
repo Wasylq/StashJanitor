@@ -15,6 +15,7 @@ import (
 // are deliberately not part of the chain — see PLAN.md section 7.
 type FileScorer struct {
 	rules         []fileRule
+	ruleNames     []string
 	pathPriority  []string
 	filenameRegex *regexp.Regexp
 }
@@ -39,6 +40,7 @@ func NewFileScorer(cfg *config.Config) (*FileScorer, error) {
 			return nil, fmt.Errorf("scoring.files.rules: %w", err)
 		}
 		s.rules = append(s.rules, rule)
+		s.ruleNames = append(s.ruleNames, name)
 	}
 	if len(s.rules) == 0 {
 		return nil, fmt.Errorf("scoring.files.rules: no rules configured")
@@ -139,6 +141,36 @@ func ruleFilePathPriority(s *FileScorer, a, b *store.FileGroupFile) int {
 		return 1
 	}
 	return cmpInt(bRank, aRank)
+}
+
+// ExplainFilePick walks the file rule chain and returns a human-readable
+// string explaining the FIRST rule that decided winner > loser. Mirrors
+// SceneScorer.ExplainPick for workflow A.
+func (s *FileScorer) ExplainFilePick(winner, loser *store.FileGroupFile) string {
+	for i, rule := range s.rules {
+		switch rule(s, winner, loser) {
+		case 1:
+			return formatFileRuleExplanation(s.ruleNames[i], winner, loser)
+		case -1:
+			return fmt.Sprintf("(unexpected: keeper lost on %s)", s.ruleNames[i])
+		}
+	}
+	return ""
+}
+
+func formatFileRuleExplanation(rule string, winner, loser *store.FileGroupFile) string {
+	switch rule {
+	case "filename_quality":
+		if winner.FilenameQuality == 1 && loser.FilenameQuality == 0 {
+			return "matches filename convention (loser does not)"
+		}
+		return fmt.Sprintf("filename quality: %d vs %d", winner.FilenameQuality, loser.FilenameQuality)
+	case "path_priority":
+		return fmt.Sprintf("preferred path: %s vs %s", winner.Path, loser.Path)
+	case "mod_time":
+		return fmt.Sprintf("newer file: %s vs %s", winner.ModTime, loser.ModTime)
+	}
+	return rule
 }
 
 // ruleModTime compares mod_time strings lexicographically. Stash returns
