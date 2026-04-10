@@ -134,13 +134,26 @@ Or by the full signature:
 // needs: parse config, open the store, build a Stash client. Returns a
 // cleanup func the caller MUST defer.
 func loadConfigAndStore() (*config.Config, *store.Store, *stash.Client, func(), error) {
-	cfg, err := config.Load(flagConfigPath)
+	cfgPath := flagConfigPath
+	if cfgPath == "" {
+		cfgPath = config.DefaultConfigPath()
+	}
+	dbPath := flagDBPath
+	if dbPath == "" {
+		dbPath = config.DefaultDBPath()
+	}
+
+	cfg, err := config.Load(cfgPath)
 	if err != nil {
 		return nil, nil, nil, nil, err
 	}
-	st, err := store.Open(flagDBPath)
+	// Ensure the DB directory exists (for XDG paths like ~/.local/share/stash-janitor/).
+	if err := config.EnsureDir(dbPath); err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("creating db directory: %w", err)
+	}
+	st, err := store.Open(dbPath)
 	if err != nil {
-		return nil, nil, nil, nil, fmt.Errorf("opening sqlite at %s: %w", flagDBPath, err)
+		return nil, nil, nil, nil, fmt.Errorf("opening sqlite at %s: %w", dbPath, err)
 	}
 	cleanup := func() { _ = st.Close() }
 	client := stash.NewClient(cfg.Stash.URL, cfg.StashAPIKey())

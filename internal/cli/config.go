@@ -19,15 +19,36 @@ func newConfigCmd() *cobra.Command {
 
 	cmd.AddCommand(&cobra.Command{
 		Use:   "init",
-		Short: "Write a default config file to --config (default: ./config.yaml)",
+		Short: "Write a default config file (XDG location or --config path)",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			if err := config.WriteDefault(flagConfigPath); err != nil {
+			path := flagConfigPath
+			if path == "" {
+				path = config.DefaultConfigInitPath()
+			}
+			if err := config.EnsureDir(path); err != nil {
+				return fmt.Errorf("creating config directory: %w", err)
+			}
+			if err := config.WriteDefault(path); err != nil {
 				if errors.Is(err, os.ErrExist) {
-					return fmt.Errorf("%s already exists; refusing to overwrite (delete or move it first)", flagConfigPath)
+					return fmt.Errorf("%s already exists; refusing to overwrite (delete or move it first)", path)
 				}
 				return err
 			}
-			fmt.Fprintf(cmd.OutOrStdout(), "wrote default config to %s\n", flagConfigPath)
+			fmt.Fprintf(cmd.OutOrStdout(), "wrote default config to %s\n", path)
+			fmt.Fprintf(cmd.OutOrStdout(), "edit stash.url to point at your Stash instance, then run `stash-janitor stats`\n")
+			return nil
+		},
+	})
+
+	cmd.AddCommand(&cobra.Command{
+		Use:   "path",
+		Short: "Print the config file path that would be used",
+		RunE: func(cmd *cobra.Command, args []string) error {
+			path := flagConfigPath
+			if path == "" {
+				path = config.DefaultConfigPath()
+			}
+			fmt.Fprintln(cmd.OutOrStdout(), path)
 			return nil
 		},
 	})
@@ -36,7 +57,11 @@ func newConfigCmd() *cobra.Command {
 		Use:   "show",
 		Short: "Load the current config (defaults + your overrides) and print it as YAML",
 		RunE: func(cmd *cobra.Command, args []string) error {
-			cfg, err := config.Load(flagConfigPath)
+			path := flagConfigPath
+			if path == "" {
+				path = config.DefaultConfigPath()
+			}
+			cfg, err := config.Load(path)
 			if err != nil {
 				return err
 			}

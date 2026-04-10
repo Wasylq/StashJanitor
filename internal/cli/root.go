@@ -40,8 +40,8 @@ See PLAN.md for the full design.`,
 		},
 	}
 
-	root.PersistentFlags().StringVar(&flagConfigPath, "config", "config.yaml", "path to config file")
-	root.PersistentFlags().StringVar(&flagDBPath, "db", "stash-janitor.sqlite", "path to local sqlite cache")
+	root.PersistentFlags().StringVar(&flagConfigPath, "config", "", "path to config file (default: ~/.config/stash-janitor/config.yaml or ./config.yaml)")
+	root.PersistentFlags().StringVar(&flagDBPath, "db", "", "path to local sqlite cache (default: ~/.local/share/stash-janitor/ or ./stash-janitor.sqlite)")
 	root.PersistentFlags().CountVarP(&flagVerbose, "verbose", "v", "increase log verbosity (-v info, -vv debug)")
 
 	root.AddCommand(newConfigCmd())
