@@ -202,13 +202,11 @@ func processSceneGroup(
 		}
 
 		// Safety net: don't auto-decide cases where the keeper has a junk
-		// filename but a loser has a structured filename matching the
-		// user's convention. The structured filename encodes information
-		// (date, performer, title) that exists nowhere else in Stash; if
-		// we merged and deleted the loser, that information would be lost
-		// forever. Mark needs_review and let the user resolve manually
-		// (until Phase 2 ships the rename-on-merge feature).
-		if status == store.StatusDecided {
+		// filename but a loser has a structured filename. SKIP this check
+		// when the user explicitly picked a keeper via force_keeper — they
+		// already reviewed it and the rename-on-merge feature handles the
+		// filename preservation.
+		if status == store.StatusDecided && keeperIDForce == "" {
 			if reviewReason := detectFilenameInfoLoss(scenes, keeperIdx); reviewReason != "" {
 				status = store.StatusNeedsReview
 				reason = reviewReason
