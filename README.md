@@ -26,21 +26,23 @@ locked-in decision.
 
 ## Status
 
-Phase 1 is complete. The following commands work end-to-end against
-Stash v0.31.0:
+All three workflows work end-to-end against Stash v0.31.0:
 
 | Command | Status |
 |---|---|
 | `stash-janitor config init` / `stash-janitor config show` | ✅ |
 | `stash-janitor scenes scan` / `status` / `report` | ✅ |
-| `stash-janitor scenes apply --action tag` (`--commit` to mutate) | ✅ |
-| `stash-janitor scenes apply --action merge` (`--commit` + `YES` to mutate) | ✅ |
+| `stash-janitor scenes apply --action tag\|merge\|delete` | ✅ |
+| `stash-janitor scenes mark` (persistent overrides) | ✅ |
 | `stash-janitor files scan` / `status` / `report` | ✅ |
-| `stash-janitor files apply` (report-only) | ✅ |
+| `stash-janitor files apply --commit` (primary swap + deleteFiles) | ✅ |
+| `stash-janitor files mark` (persistent overrides) | ✅ |
+| `stash-janitor orphans scan` / `status` / `report` | ✅ |
+| `stash-janitor orphans apply --commit` (link to stash-box) | ✅ |
+| `--submit-fingerprints` (all apply commands) | ✅ |
 
-Phase 1.5 (workflow B `--commit`, stash-box fingerprint submission, manual
-override marks) and Phase 2 (cross-scene `--action delete`, TUI) are on the
-roadmap — see PLAN.md.
+See [MANUAL.md](MANUAL.md) for usage instructions and
+[PLAN.md](PLAN.md) for the design and rationale.
 
 ## Requirements
 
