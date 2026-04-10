@@ -58,7 +58,7 @@ See [MANUAL.md](MANUAL.md) for usage instructions and
 
 ## Requirements
 
-- Go 1.22 or newer (verified on 1.24)
+- Go 1.25 or newer (required by the modernc.org/sqlite dependency)
 - A reachable Stash instance running v0.31.0 (other 0.31.x patch releases
   should work; older or newer minor versions are untested)
 - A few hundred MB of free disk for the SQLite cache (proportional to

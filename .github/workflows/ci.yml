@@ -13,16 +13,13 @@ jobs:
   test:
     name: Test
     runs-on: ubuntu-latest
-    strategy:
-      matrix:
-        go-version: ['1.22', '1.23', '1.24']
     steps:
       - uses: actions/checkout@v4
 
-      - name: Set up Go ${{ matrix.go-version }}
+      - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: ${{ matrix.go-version }}
+          go-version-file: go.mod
 
       - name: Download dependencies
         run: go mod download
@@ -31,14 +28,7 @@ jobs:
         run: go build ./...
 
       - name: Test
-        run: go test -race -coverprofile=coverage.out ./...
-
-      - name: Upload coverage
-        if: matrix.go-version == '1.24'
-        uses: actions/upload-artifact@v4
-        with:
-          name: coverage
-          path: coverage.out
+        run: go test -race -count=1 ./...
 
   lint:
     name: Lint
@@ -49,7 +39,7 @@ jobs:
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
 
       - name: Run go vet
         run: go vet ./...
@@ -61,21 +51,30 @@ jobs:
           args: --timeout=5m
 
   build-check:
-    name: Build (multi-platform)
+    name: Build (${{ matrix.goos }}/${{ matrix.goarch }})
     runs-on: ubuntu-latest
     strategy:
       matrix:
-        goos: [linux, darwin, windows]
-        goarch: [amd64, arm64]
+        include:
+          - goos: linux
+            goarch: amd64
+          - goos: linux
+            goarch: arm64
+          - goos: darwin
+            goarch: amd64
+          - goos: darwin
+            goarch: arm64
+          - goos: windows
+            goarch: amd64
     steps:
       - uses: actions/checkout@v4
 
       - name: Set up Go
         uses: actions/setup-go@v5
         with:
-          go-version: '1.24'
+          go-version-file: go.mod
 
-      - name: Build ${{ matrix.goos }}/${{ matrix.goarch }}
+      - name: Build
         env:
           GOOS: ${{ matrix.goos }}
           GOARCH: ${{ matrix.goarch }}
