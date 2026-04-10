@@ -382,20 +382,29 @@ Tagger first to maximize metadata coverage, then organize.
 
 ## Interactive review (TUI)
 
-`stash-janitor review` launches a terminal UI for walking through duplicate groups:
+`stash-janitor review` launches a terminal UI for walking through duplicate
+groups. Especially useful for `needs_review` groups where the scorer couldn't
+auto-decide and you need to pick a keeper manually.
 
 ```sh
 ./stash-janitor review                          # decided + needs_review groups
-./stash-janitor review --filter all             # everything
-./stash-janitor review --filter needs-review    # focus on the hard cases
+./stash-janitor review --filter needs-review    # just the ones that need you
 ```
 
-- **List mode**: `j`/`k` or arrows to navigate, `Enter` for detail, `q` to quit
-- **Detail mode**: color-coded KEEP/drop roles, per-loser "kept by" explanations
-  - `a` = accept auto-pick, `o` = override keeper, `n` = not_duplicate, `d` = dismiss
-  - Override mode: arrow-select a different scene, `Enter` to confirm
+- **For `needs_review` groups**: press `o` to pick which scene to keep, then
+  `Enter`. The status bar updates live.
+- **For `decided` groups**: press `a` to accept the scorer's pick, or `o` to
+  change it.
+- `n` = not_duplicate, `d` = dismiss, `q` = quit.
 
-Decisions save immediately to `stash-janitor.sqlite`.
+The TUI only saves decisions locally. After reviewing, re-scan and apply:
+
+```sh
+stash-janitor scenes scan
+stash-janitor scenes apply --action merge --commit
+```
+
+See [MANUAL.md](MANUAL.md) for the full review-to-delete walkthrough.
 
 ## Where to find help
 

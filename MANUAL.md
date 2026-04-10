@@ -448,31 +448,101 @@ stash-janitor review --filter all             # shows everything
 stash-janitor review --filter needs-review    # focus on the hard cases
 ```
 
+### Full review-to-delete walkthrough
+
+This is the complete end-to-end flow including the TUI:
+
+```sh
+# 1. Scan to find duplicates
+stash-janitor scenes scan
+
+# 2. Check what you have
+stash-janitor scenes status
+#    decided: N       ← scorer picked a winner, ready to merge/tag
+#    needs_review: M  ← scorer couldn't decide, you must pick
+
+# 3. Auto-decided groups can be applied immediately (no review needed)
+stash-janitor scenes apply --action merge         # preview
+stash-janitor scenes apply --action merge --commit # execute
+
+# 4. Review the needs_review groups in the TUI
+stash-janitor review --filter needs-review
+
+# 5. In the TUI: for each group, press 'o', pick the scene to keep,
+#    press Enter. The status bar updates live.
+
+# 6. Quit the TUI (q). It shows next steps.
+
+# 7. Re-scan to convert your decisions into "decided" groups
+stash-janitor scenes scan
+
+# 8. Now merge the newly-decided groups
+stash-janitor scenes apply --action merge --commit
+```
+
+### TUI navigation
+
 **List mode** — browse all groups at a glance:
 - `j`/`k` or `↑`/`↓` to navigate
 - `PgUp`/`PgDn` to jump 10 groups
 - `Enter` to drill into detail
-- `q` to quit
+- `q` to quit (shows next steps if you made changes)
 
 **Detail mode** — one group at a time with full context:
-- Color-coded `KEEP` / `drop` roles for each scene
+- Color-coded `KEEP` / `drop` / `?` roles for each scene
 - Resolution, codec, file size, flags (stashID, organized, tags)
 - Per-loser `↳ kept by: <reason>` explanation from the scorer
 - Full file paths
 
-**Actions in detail mode:**
-- `a` = accept the auto-pick (marks the group as dismissed)
-- `o` = override the keeper (arrow-select a different scene, Enter to confirm)
-- `n` = mark as not_duplicate (future scans will skip this group)
-- `d` = dismiss
-- `↓` = advance to next group
-- `Esc` = back to list
+### TUI actions
 
-All decisions save to `stash-janitor.sqlite` immediately. They take effect on the
-next `stash-janitor scenes scan`.
+Actions differ depending on the group's status:
 
-**Status bar** shows your position, counts (decided/review/applied/dismissed),
-and total reclaimable bytes across all decided groups.
+**For `needs_review` groups** (the scorer couldn't auto-decide):
+
+| Key | Action |
+|-----|--------|
+| `o` | **Pick keeper** — arrow-select which scene to keep, Enter to confirm. This is the main action you want. |
+| `n` | Mark as not_duplicate (these scenes aren't actually the same content) |
+| `d` | Dismiss (skip this group forever) |
+| `a` | Shows a warning — you must use `o` first to pick a keeper |
+| `↓` | Skip to next group without deciding |
+| `Esc` | Back to list |
+
+**For `decided` groups** (the scorer already picked a winner):
+
+| Key | Action |
+|-----|--------|
+| `a` | Accept the scorer's pick (confirms it as a permanent override) |
+| `o` | Change the keeper (if you disagree with the scorer's pick) |
+| `n` | Mark as not_duplicate |
+| `d` | Dismiss |
+| `↓` | Next group |
+| `Esc` | Back to list |
+
+### How the TUI connects to apply
+
+The TUI only **saves decisions locally** — it never deletes files or
+touches Stash. The actual deletion happens when you run `apply`:
+
+```
+TUI decisions → saved to stash-janitor.sqlite
+                      ↓
+         stash-janitor scenes scan  (re-reads decisions, marks groups decided)
+                      ↓
+         stash-janitor scenes apply --action merge --commit  (executes)
+```
+
+The **status bar** updates live as you make decisions, so you can see
+progress: `decided:5 review:3 dismissed:2`.
+
+When you **quit**, the TUI prints:
+```
+Saved 10 decisions. Next steps:
+  1. stash-janitor scenes scan
+  2. stash-janitor scenes status
+  3. stash-janitor scenes apply --action merge --commit
+```
 
 ## Tips
 
