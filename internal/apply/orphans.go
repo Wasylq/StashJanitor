@@ -71,7 +71,17 @@ type OrphansReport struct {
 	Error    string
 }
 
+// ExecuteOrphansOpts controls optional behavior during orphan apply.
+type ExecuteOrphansOpts struct {
+	// WriteMetadata, when true, also sets title and date on the scene
+	// from the stash-box scrape result (only when the scene's current
+	// value is empty). Default false — the user reviews matches first.
+	WriteMetadata bool
+}
+
 // ExecuteOrphans writes each matched orphan's stash_id back to its scene.
+// When opts.WriteMetadata is true, also writes title and date from the
+// stored scrape result.
 //
 // Caller (cli) is responsible for the YES prompt. Per-row errors are
 // captured and the loop continues.
@@ -80,6 +90,7 @@ func ExecuteOrphans(
 	c *stash.Client,
 	st *store.Store,
 	plan *OrphansPlan,
+	opts ExecuteOrphansOpts,
 ) ([]*OrphansReport, error) {
 	if c == nil || st == nil || plan == nil {
 		return nil, errors.New("ExecuteOrphans: nil dependency")
@@ -147,6 +158,25 @@ func ExecuteOrphans(
 			report.Error = err.Error()
 			continue
 		}
+		// Optionally write title + date from the scrape, but only when
+		// the scene's fields are currently empty (don't overwrite user data).
+		if opts.WriteMetadata && (r.MatchTitle != "" || r.MatchDate != "") {
+			titleToSet := ""
+			dateToSet := ""
+			if scene.Title == "" && r.MatchTitle != "" {
+				titleToSet = r.MatchTitle
+			}
+			if scene.Date == "" && r.MatchDate != "" {
+				dateToSet = r.MatchDate
+			}
+			if titleToSet != "" || dateToSet != "" {
+				if err := c.SetSceneTitleDate(ctx, r.SceneID, titleToSet, dateToSet); err != nil {
+					slog.Warn("writing title/date failed; stash_id was already set so continuing",
+						"scene_id", r.SceneID, "error", err)
+				}
+			}
+		}
+
 		if err := st.MarkOrphanLookupApplied(ctx, r.ID); err != nil {
 			report.Status = "failed"
 			report.Error = "mutation succeeded but mark-applied failed: " + err.Error()

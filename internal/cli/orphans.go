@@ -162,7 +162,7 @@ func runOrphansReport(cmd *cobra.Command, args []string) error {
 }
 
 func runOrphansApply(cmd *cobra.Command, args []string) error {
-	_, st, client, cleanup, err := loadConfigAndStore()
+	cfg, st, client, cleanup, err := loadConfigAndStore()
 	if err != nil {
 		return err
 	}
@@ -200,7 +200,9 @@ func runOrphansApply(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	reports, err := apply.ExecuteOrphans(ctx, client, st, plan)
+	reports, err := apply.ExecuteOrphans(ctx, client, st, plan, apply.ExecuteOrphansOpts{
+		WriteMetadata: cfg.Orphans.WriteMetadataOnApply,
+	})
 	if err != nil {
 		return err
 	}

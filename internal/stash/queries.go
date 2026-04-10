@@ -542,6 +542,34 @@ func (c *Client) SetSceneStashIDs(ctx context.Context, sceneID string, stashIDs 
 	return c.Execute(ctx, setSceneStashIDsMutation, vars, nil)
 }
 
+const setSceneTitleDateMutation = `
+mutation SetSceneTitleDate($id: ID!, $title: String, $date: String) {
+  sceneUpdate(input: { id: $id, title: $title, date: $date }) {
+    id
+  }
+}
+`
+
+// SetSceneTitleDate writes title and/or date onto a scene, but only if the
+// scene's current value for that field is empty — avoids overwriting
+// user-set metadata. Called by orphans apply when
+// orphans.write_metadata_on_apply is enabled.
+func (c *Client) SetSceneTitleDate(ctx context.Context, sceneID, title, date string) error {
+	vars := map[string]any{
+		"id": sceneID,
+	}
+	if title != "" {
+		vars["title"] = title
+	}
+	if date != "" {
+		vars["date"] = date
+	}
+	if len(vars) == 1 {
+		return nil // nothing to set
+	}
+	return c.Execute(ctx, setSceneTitleDateMutation, vars, nil)
+}
+
 // ============================================================================
 // Diagnostics & configuration discovery
 // ============================================================================

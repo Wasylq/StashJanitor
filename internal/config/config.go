@@ -36,8 +36,13 @@ type Config struct {
 	Scoring              Scoring              `yaml:"scoring"`
 	ReviewPolicy         ReviewPolicy         `yaml:"review_policy"`
 	Apply                Apply                `yaml:"apply"`
+	Orphans              OrphansConfig        `yaml:"orphans"`
 	StashBoxFingerprints StashBoxFingerprints `yaml:"stash_box_fingerprints"`
 	Merge                Merge                `yaml:"merge"`
+}
+
+type OrphansConfig struct {
+	WriteMetadataOnApply bool `yaml:"write_metadata_on_apply"`
 }
 
 type Stash struct {

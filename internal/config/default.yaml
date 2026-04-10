@@ -106,6 +106,16 @@ stash_box_fingerprints:
   # after a successful action. Off by default. (Phase 1.5.)
   enabled: false
 
+orphans:
+  # When applying stash-box matches via `stash-janitor orphans apply --commit`,
+  # also write the scraped title and date onto the scene (in addition
+  # to the stash_id link). Default false — review matches via
+  # `stash-janitor orphans report --filter matched` first. Stash-box can have
+  # wrong phash matches, so you should eyeball the report before
+  # enabling this. Performer and studio linking always requires
+  # Stash's Scene Tagger regardless of this setting.
+  write_metadata_on_apply: false
+
 merge:
   # Policy for computing the metadata union before calling sceneMerge.
   # Stash's sceneMerge does NOT auto-union scene-level metadata in v0.31.0
