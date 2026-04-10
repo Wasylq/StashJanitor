@@ -442,6 +442,41 @@ func (c *Client) SubmitStashBoxFingerprints(ctx context.Context, sceneIDs []stri
 }
 
 // ============================================================================
+// All scenes (paginated) — used by workflow D organize
+// ============================================================================
+
+const findAllScenesQuery = sceneFieldsFragment + `
+query FindAllScenes($page: Int!, $per_page: Int!) {
+  findScenes(
+    filter: { page: $page, per_page: $per_page, sort: "id", direction: ASC }
+  ) {
+    count
+    scenes { ...SceneFields }
+  }
+}
+`
+
+// FindAllScenesPage returns one page of ALL scenes (no filter). Used by
+// `stash-janitor organize scan` which needs to see every scene in the library to
+// compute ideal paths.
+func (c *Client) FindAllScenesPage(ctx context.Context, page, perPage int) (*FindScenesResult, error) {
+	if page < 1 {
+		page = 1
+	}
+	if perPage < 1 {
+		perPage = 100
+	}
+	var resp struct {
+		FindScenes FindScenesResult `json:"findScenes"`
+	}
+	vars := map[string]any{"page": page, "per_page": perPage}
+	if err := c.Execute(ctx, findAllScenesQuery, vars, &resp); err != nil {
+		return nil, fmt.Errorf("findAllScenes(page=%d): %w", page, err)
+	}
+	return &resp.FindScenes, nil
+}
+
+// ============================================================================
 // Workflow C: orphan stash-box lookup
 // ============================================================================
 

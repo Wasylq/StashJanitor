@@ -37,7 +37,8 @@ var schemaSQL string
 //	v3 — added fingerprint_submissions table (--submit-fingerprints)
 //	v4 — added orphan_lookups table (Phase 3 workflow C: stash-box phash
 //	     lookup for scenes with no stash_id)
-const currentSchemaVersion = 4
+//	v5 — added organize_plans table (workflow D: file organization)
+const currentSchemaVersion = 5
 
 // Status values used by both scene_groups.status and file_groups.status.
 const (
@@ -57,9 +58,10 @@ const (
 
 // Workflow tags used in scan_runs.workflow and user_decisions.workflow.
 const (
-	WorkflowScenes  = "scenes"
-	WorkflowFiles   = "files"
-	WorkflowOrphans = "orphans"
+	WorkflowScenes   = "scenes"
+	WorkflowFiles    = "files"
+	WorkflowOrphans  = "orphans"
+	WorkflowOrganize = "organize"
 )
 
 // Status values for orphan_lookups specifically. Re-uses the generic
@@ -202,6 +204,28 @@ func (s *Store) applyMigration(ctx context.Context, version int) error {
 			)`,
 			`CREATE INDEX IF NOT EXISTS idx_orphan_lookups_status ON orphan_lookups(status)`,
 			`CREATE INDEX IF NOT EXISTS idx_orphan_lookups_scene  ON orphan_lookups(scene_id, endpoint)`,
+		}
+		for _, stmt := range stmts {
+			if _, err := s.db.ExecContext(ctx, stmt); err != nil {
+				return err
+			}
+		}
+		return nil
+	case 5:
+		stmts := []string{
+			`CREATE TABLE IF NOT EXISTS organize_plans (
+				id           INTEGER PRIMARY KEY AUTOINCREMENT,
+				scan_run_id  INTEGER NOT NULL REFERENCES scan_runs(id) ON DELETE CASCADE,
+				scene_id     TEXT NOT NULL,
+				file_id      TEXT NOT NULL,
+				current_path TEXT NOT NULL,
+				target_path  TEXT NOT NULL,
+				status       TEXT NOT NULL,
+				reason       TEXT,
+				applied_at   TEXT,
+				UNIQUE(scan_run_id, file_id)
+			)`,
+			`CREATE INDEX IF NOT EXISTS idx_organize_plans_status ON organize_plans(status)`,
 		}
 		for _, stmt := range stmts {
 			if _, err := s.db.ExecContext(ctx, stmt); err != nil {

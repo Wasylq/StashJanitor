@@ -155,3 +155,21 @@ CREATE TABLE IF NOT EXISTS orphan_lookups (
 
 CREATE INDEX IF NOT EXISTS idx_orphan_lookups_status   ON orphan_lookups(status);
 CREATE INDEX IF NOT EXISTS idx_orphan_lookups_scene    ON orphan_lookups(scene_id, endpoint);
+
+-- Workflow D: organize plans. Each row is one file that sfx proposes to
+-- move or rename based on the path template + scene metadata. Added in
+-- schema v5.
+CREATE TABLE IF NOT EXISTS organize_plans (
+  id              INTEGER PRIMARY KEY AUTOINCREMENT,
+  scan_run_id     INTEGER NOT NULL REFERENCES scan_runs(id) ON DELETE CASCADE,
+  scene_id        TEXT NOT NULL,
+  file_id         TEXT NOT NULL,
+  current_path    TEXT NOT NULL,
+  target_path     TEXT NOT NULL,
+  status          TEXT NOT NULL,        -- move|rename|already_correct|skip_no_metadata|conflict|applied|failed
+  reason          TEXT,
+  applied_at      TEXT,
+  UNIQUE(scan_run_id, file_id)
+);
+
+CREATE INDEX IF NOT EXISTS idx_organize_plans_status ON organize_plans(status);

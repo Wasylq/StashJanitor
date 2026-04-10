@@ -108,6 +108,19 @@ type OrphanLookup struct {
 	MatchCount      int    `json:"match_count"`
 }
 
+// OrganizePlan is one file's proposed move/rename in workflow D.
+type OrganizePlan struct {
+	ID          int64      `json:"id"`
+	ScanRunID   int64      `json:"scan_run_id"`
+	SceneID     string     `json:"scene_id"`
+	FileID      string     `json:"file_id"`
+	CurrentPath string     `json:"current_path"`
+	TargetPath  string     `json:"target_path"`
+	Status      string     `json:"status"` // move|rename|already_correct|skip_no_metadata|conflict|applied|failed
+	Reason      string     `json:"reason,omitempty"`
+	AppliedAt   *time.Time `json:"applied_at,omitempty"`
+}
+
 // UserDecision is a persistent override that survives scan re-runs.
 type UserDecision struct {
 	Key       string    `json:"key"` // signature (scenes) or "scene:<id>" (files)

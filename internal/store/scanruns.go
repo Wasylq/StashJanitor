@@ -11,7 +11,7 @@ import (
 // then upserts groups attributing them to that ID, and finally calls
 // FinishScanRun.
 func (s *Store) StartScanRun(ctx context.Context, workflow string, distance *int, durationDiff *float64) (int64, error) {
-	if workflow != WorkflowScenes && workflow != WorkflowFiles && workflow != WorkflowOrphans {
+	if workflow != WorkflowScenes && workflow != WorkflowFiles && workflow != WorkflowOrphans && workflow != WorkflowOrganize {
 		return 0, fmt.Errorf("StartScanRun: invalid workflow %q", workflow)
 	}
 	res, err := s.db.ExecContext(ctx,

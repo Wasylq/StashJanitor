@@ -122,6 +122,43 @@ orphans:
   # always requires Stash's Scene Tagger regardless.
   write_metadata_on_apply: false
 
+organize:
+  # Base directory that Stash sees (the root of your library).
+  base_dir: /data
+
+  # Template for the ideal file path relative to base_dir.
+  # Variables (filled from Stash scene metadata):
+  #   {performer}   — primary performer name (see performer_strategy)
+  #   {studio}      — studio name
+  #   {title}       — scene title (spaces replaced by space_char)
+  #   {date}        — scene date as YYYY-MM-DD
+  #   {year}        — year from the date (first 4 chars)
+  #   {resolution}  — height-based token: 480p, 720p, 1080p, 4k, 8k
+  #   {ext}         — file extension (mp4, mkv, etc.)
+  #   {id}          — Stash scene ID (guaranteed unique, fallback)
+  #
+  # Folder separators in the template create subdirectories.
+  path_template: "{performer}/{date}_{performer}-{title}_{resolution}.{ext}"
+
+  # How spaces are rendered in filename components.
+  space_char: "."              # "Aimee Waves" → "Aimee.Waves" in filenames
+  # How spaces are rendered in folder name components.
+  folder_space_char: " "       # "Aimee Waves" stays "Aimee Waves" as folder
+
+  # How to pick the primary performer when a scene has multiple.
+  # first_alphabetical — alphabetically first (deterministic, stable)
+  # first_listed       — first in Stash's performer order
+  performer_strategy: first_alphabetical
+
+  # Scenes missing ANY of these fields are skipped (left where they are).
+  required_fields:
+    - performer
+    - date
+
+  # Also rename files that are already in the right folder but have
+  # the wrong filename.
+  rename_in_place: true
+
 merge:
   # Policy for computing the metadata union before calling sceneMerge.
   # Stash's sceneMerge does NOT auto-union scene-level metadata in v0.31.0
