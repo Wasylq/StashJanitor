@@ -4,7 +4,6 @@ package cli
 import (
 	"io"
 	"log/slog"
-	"os"
 
 	"github.com/spf13/cobra"
 )
@@ -75,13 +74,3 @@ func setupLogger(w io.Writer, verbose int) {
 	slog.SetDefault(slog.New(handler))
 }
 
-// stub is a placeholder Run for not-yet-implemented commands. It writes a
-// clear message to stderr and returns a non-zero error so scripts can detect
-// the gap. Subsequent tasks will replace these as commands are filled in.
-func stub(name string) func(cmd *cobra.Command, args []string) error {
-	return func(cmd *cobra.Command, args []string) error {
-		_, _ = io.WriteString(os.Stderr, "stash-janitor: "+name+" is not implemented yet — see PLAN.md TODO\n")
-		os.Exit(2)
-		return nil
-	}
-}

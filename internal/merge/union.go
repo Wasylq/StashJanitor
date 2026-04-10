@@ -115,7 +115,7 @@ func BuildUnion(keeper *stash.Scene, losers []*stash.Scene, cfg *config.Config) 
 		}
 		var newStashIDs []stash.StashIDInput
 		for _, sid := range keeper.StashIDs {
-			newStashIDs = append(newStashIDs, stash.StashIDInput{Endpoint: sid.Endpoint, StashID: sid.StashID})
+			newStashIDs = append(newStashIDs, stash.StashIDInput(sid))
 		}
 		var added []string
 		for _, l := range losers {
@@ -125,7 +125,7 @@ func BuildUnion(keeper *stash.Scene, losers []*stash.Scene, cfg *config.Config) 
 					continue
 				}
 				seen[key] = true
-				newStashIDs = append(newStashIDs, stash.StashIDInput{Endpoint: sid.Endpoint, StashID: sid.StashID})
+				newStashIDs = append(newStashIDs, stash.StashIDInput(sid))
 				added = append(added, key)
 			}
 		}

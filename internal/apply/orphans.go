@@ -164,10 +164,7 @@ func ExecuteOrphans(
 				})
 				continue
 			}
-			existing = append(existing, stash.StashIDInput{
-				Endpoint: sid.Endpoint,
-				StashID:  sid.StashID,
-			})
+			existing = append(existing, stash.StashIDInput(sid))
 		}
 		if !hasThisEndpoint {
 			existing = append(existing, stash.StashIDInput{
