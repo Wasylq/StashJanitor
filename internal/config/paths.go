@@ -39,7 +39,7 @@ func DefaultDBPath() string {
 		return "stash-janitor.sqlite"
 	}
 
-	if dir := xdgDataHome(); dir != "" {
+	if dir := dataHome(); dir != "" {
 		xdg := filepath.Join(dir, "stash-janitor", "stash-janitor.sqlite")
 		if _, err := os.Stat(xdg); err == nil {
 			return xdg
@@ -61,23 +61,41 @@ func DefaultConfigInitPath() string {
 // DefaultDBInitPath returns the path the store should use when creating
 // a new database. Prefers XDG; falls back to current directory.
 func DefaultDBInitPath() string {
-	if dir := xdgDataHome(); dir != "" {
+	if dir := dataHome(); dir != "" {
 		return filepath.Join(dir, "stash-janitor", "stash-janitor.sqlite")
 	}
 	return "stash-janitor.sqlite"
 }
 
-// xdgDataHome returns $XDG_DATA_HOME or ~/.local/share per the XDG
-// Base Directory Specification.
-func xdgDataHome() string {
+// dataHome returns the platform-appropriate directory for user data:
+//
+//	Linux:   $XDG_DATA_HOME or ~/.local/share
+//	macOS:   ~/Library/Application Support  (same as UserConfigDir)
+//	Windows: %AppData%                      (same as UserConfigDir)
+//
+// On macOS/Windows there's no separate "data" vs "config" dir, so we
+// use the same root as config (with a separate subfolder).
+func dataHome() string {
+	// Linux: respect XDG_DATA_HOME.
 	if d := os.Getenv("XDG_DATA_HOME"); d != "" {
 		return d
 	}
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return ""
+
+	// On macOS and Windows, UserConfigDir is already the right place
+	// for both config and data. On Linux, it returns ~/.config which
+	// is NOT where data should go — we want ~/.local/share.
+	if dir, err := os.UserConfigDir(); err == nil {
+		home, _ := os.UserHomeDir()
+		linuxConfigDir := filepath.Join(home, ".config")
+		if dir == linuxConfigDir {
+			// Linux: use ~/.local/share instead of ~/.config.
+			return filepath.Join(home, ".local", "share")
+		}
+		// macOS / Windows: config dir works for data too.
+		return dir
 	}
-	return filepath.Join(home, ".local", "share")
+
+	return ""
 }
 
 // EnsureDir creates dir and all parents if they don't exist.
