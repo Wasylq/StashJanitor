@@ -304,6 +304,42 @@ with your overrides.
   `YYYY-MM-DD_Performer-Title_Resolution.ext` convention, the date and
   title are parsed from the filename and set on the keeper before merging.
 
+## Interactive review (TUI)
+
+For a faster review experience than the CLI report + mark workflow:
+
+```sh
+stash-janitor review                          # shows decided + needs_review groups
+stash-janitor review --filter all             # shows everything
+stash-janitor review --filter needs-review    # focus on the hard cases
+```
+
+**List mode** — browse all groups at a glance:
+- `j`/`k` or `↑`/`↓` to navigate
+- `PgUp`/`PgDn` to jump 10 groups
+- `Enter` to drill into detail
+- `q` to quit
+
+**Detail mode** — one group at a time with full context:
+- Color-coded `KEEP` / `drop` roles for each scene
+- Resolution, codec, file size, flags (stashID, organized, tags)
+- Per-loser `↳ kept by: <reason>` explanation from the scorer
+- Full file paths
+
+**Actions in detail mode:**
+- `a` = accept the auto-pick (marks the group as dismissed)
+- `o` = override the keeper (arrow-select a different scene, Enter to confirm)
+- `n` = mark as not_duplicate (future scans will skip this group)
+- `d` = dismiss
+- `↓` = advance to next group
+- `Esc` = back to list
+
+All decisions save to `stash-janitor.sqlite` immediately. They take effect on the
+next `stash-janitor scenes scan`.
+
+**Status bar** shows your position, counts (decided/review/applied/dismissed),
+and total reclaimable bytes across all decided groups.
+
 ## Tips
 
 - **Run `stash-janitor stats` first** to see your library size, metadata coverage,

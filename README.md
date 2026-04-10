@@ -44,6 +44,7 @@ All three workflows work end-to-end against Stash v0.31.0:
 | `stash-janitor orphans scan --endpoint all` (multi-endpoint) | ✅ |
 | `stash-janitor orphans apply --commit` (link to stash-box) | ✅ |
 | `--submit-fingerprints` (all apply commands) | ✅ |
+| `stash-janitor review` (interactive TUI) | ✅ |
 | Per-loser "kept by: ..." explanations in reports | ✅ |
 | Filename-info-loss safety net (workflow A) | ✅ |
 | Rename-on-merge (preserve loser filename info) | ✅ |
@@ -323,10 +324,28 @@ internal/report/       — text + JSON output for all workflows
 internal/confirm/      — interactive YES prompt utility
 ```
 
+## Interactive review (TUI)
+
+`stash-janitor review` launches a terminal UI for walking through duplicate groups:
+
+```sh
+./stash-janitor review                          # decided + needs_review groups
+./stash-janitor review --filter all             # everything
+./stash-janitor review --filter needs-review    # focus on the hard cases
+```
+
+- **List mode**: `j`/`k` or arrows to navigate, `Enter` for detail, `q` to quit
+- **Detail mode**: color-coded KEEP/drop roles, per-loser "kept by" explanations
+  - `a` = accept auto-pick, `o` = override keeper, `n` = not_duplicate, `d` = dismiss
+  - Override mode: arrow-select a different scene, `Enter` to confirm
+
+Decisions save immediately to `stash-janitor.sqlite`.
+
 ## Where to find help
 
 - [PLAN.md](PLAN.md) — full design, locked-in decisions, phased roadmap
+- [MANUAL.md](MANUAL.md) — step-by-step user guide
 - [internal/config/default.yaml](internal/config/default.yaml) — every config
   field documented inline
 - `./stash-janitor help` — cobra-generated command tree
-- `./stash-janitor scenes help`, `./stash-janitor files help` — workflow-specific help
+- `./stash-janitor scenes help`, `./stash-janitor files help`, `./stash-janitor orphans help` — workflow-specific help
