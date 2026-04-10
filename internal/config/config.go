@@ -42,6 +42,7 @@ type Config struct {
 }
 
 type OrphansConfig struct {
+	WriteStashIDOnApply  bool `yaml:"write_stash_id_on_apply"`
 	WriteMetadataOnApply bool `yaml:"write_metadata_on_apply"`
 }
 

@@ -107,13 +107,19 @@ stash_box_fingerprints:
   enabled: false
 
 orphans:
-  # When applying stash-box matches via `stash-janitor orphans apply --commit`,
-  # also write the scraped title and date onto the scene (in addition
-  # to the stash_id link). Default false — review matches via
-  # `stash-janitor orphans report --filter matched` first. Stash-box can have
-  # wrong phash matches, so you should eyeball the report before
-  # enabling this. Performer and studio linking always requires
-  # Stash's Scene Tagger regardless of this setting.
+  # By default, stash-janitor orphans is purely a DISCOVERY tool: scan finds
+  # matches, report shows them, and YOU handle the actual linking in
+  # Stash's UI (Scene Tagger). No mutations are made to Stash.
+  #
+  # Set write_stash_id_on_apply to true if you want `stash-janitor orphans apply
+  # --commit` to write the stash_id link onto scenes automatically.
+  # Stash-box can have wrong phash matches, so review the report first.
+  write_stash_id_on_apply: false
+
+  # When write_stash_id_on_apply is true AND this is also true, also
+  # write the scraped title and date onto the scene (only when the
+  # scene's current value is empty). Performer and studio linking
+  # always requires Stash's Scene Tagger regardless.
   write_metadata_on_apply: false
 
 merge:

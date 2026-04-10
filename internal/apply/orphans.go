@@ -39,25 +39,31 @@ func PlanOrphans(ctx context.Context, st *store.Store) (*OrphansPlan, error) {
 }
 
 // PrintOrphansPlan writes the human-readable summary.
-func PrintOrphansPlan(w io.Writer, p *OrphansPlan, commit bool) error {
+func PrintOrphansPlan(w io.Writer, p *OrphansPlan, commit bool, writeStashID bool) error {
 	mode := "DRY RUN"
 	if commit {
 		mode = "COMMIT"
 	}
 	fmt.Fprintf(w, "=== stash-janitor orphans apply (%s) ===\n", mode)
-	fmt.Fprintf(w, "Matched orphans to link:  %d\n", len(p.Lookups))
+	fmt.Fprintf(w, "Matched orphans:  %d\n", len(p.Lookups))
 	if len(p.Lookups) == 0 {
 		fmt.Fprintln(w, "\nNothing to do. Try `stash-janitor orphans scan` first.")
 		return nil
 	}
-	fmt.Fprintln(w, "\nFor each matched orphan, stash-janitor will call:")
-	fmt.Fprintln(w, "  sceneUpdate(input: { id: <scene>, stash_ids: [{ endpoint, stash_id: <remote_id> }] })")
-	fmt.Fprintln(w, "\nThis only ATTACHES the stash-box link. To pull metadata (tags, performers,")
-	fmt.Fprintln(w, "studio, date) from stash-box, run Stash's built-in Scene Tagger after this")
-	fmt.Fprintln(w, "completes.")
+	if !writeStashID {
+		fmt.Fprintln(w, "\norphans.write_stash_id_on_apply is false (default).")
+		fmt.Fprintln(w, "stash-janitor will NOT write anything to Stash. To handle matches:")
+		fmt.Fprintln(w, "  1. Run `stash-janitor orphans report --filter matched` to see what was found")
+		fmt.Fprintln(w, "  2. In Stash UI, use the Scene Tagger to link and pull metadata")
+		fmt.Fprintln(w, "\n--commit will mark these as reviewed in the local cache so future")
+		fmt.Fprintln(w, "scans skip them. No Stash mutations.")
+		fmt.Fprintln(w, "\nTo enable auto-linking, set orphans.write_stash_id_on_apply: true in config.")
+	} else {
+		fmt.Fprintln(w, "\nFor each matched orphan, stash-janitor will write the stash_id link via sceneUpdate.")
+		fmt.Fprintln(w, "Then run Stash's Scene Tagger to pull full metadata (performers, studio, tags).")
+	}
 	if !commit {
-		fmt.Fprintln(w, "\nThis was a dry run. Re-run with --commit to mutate Stash.")
-		fmt.Fprintln(w, "--commit triggers an interactive YES confirmation; --yes bypasses it.")
+		fmt.Fprintln(w, "\nThis was a dry run. Re-run with --commit to proceed.")
 	}
 	return nil
 }
@@ -73,9 +79,15 @@ type OrphansReport struct {
 
 // ExecuteOrphansOpts controls optional behavior during orphan apply.
 type ExecuteOrphansOpts struct {
-	// WriteMetadata, when true, also sets title and date on the scene
-	// from the stash-box scrape result (only when the scene's current
-	// value is empty). Default false — the user reviews matches first.
+	// WriteStashID, when true, writes the stash_id link onto the scene.
+	// Default false — the orphans workflow is purely discovery by default.
+	// The user reviews matches in the report and handles linking in
+	// Stash's UI (Scene Tagger).
+	WriteStashID bool
+
+	// WriteMetadata, when true AND WriteStashID is also true, also sets
+	// title and date from the scrape result (only when the scene's
+	// current value is empty). Default false.
 	WriteMetadata bool
 }
 
@@ -111,9 +123,22 @@ func ExecuteOrphans(
 			continue
 		}
 
-		// We need the scene's existing stash_ids so we can union the new
-		// one in instead of replacing the list (a scene might already be
-		// matched on a DIFFERENT endpoint).
+		if !opts.WriteStashID {
+			// Discovery-only mode: just mark applied in the local cache
+			// so re-runs skip it. No mutations to Stash.
+			if err := st.MarkOrphanLookupApplied(ctx, r.ID); err != nil {
+				report.Status = "failed"
+				report.Error = "mark-applied failed: " + err.Error()
+				continue
+			}
+			report.Status = "success"
+			continue
+		}
+
+		// --- Write mode (both config flags must be on) ---
+
+		// Fetch the scene's existing stash_ids so we can union the new
+		// one in instead of replacing the list.
 		scene, err := c.FindScene(ctx, r.SceneID)
 		if err != nil {
 			report.Status = "failed"
@@ -135,7 +160,7 @@ func ExecuteOrphans(
 				hasThisEndpoint = true
 				existing = append(existing, stash.StashIDInput{
 					Endpoint: sid.Endpoint,
-					StashID:  r.MatchRemoteID, // overwrite with new value
+					StashID:  r.MatchRemoteID,
 				})
 				continue
 			}
@@ -158,8 +183,8 @@ func ExecuteOrphans(
 			report.Error = err.Error()
 			continue
 		}
-		// Optionally write title + date from the scrape, but only when
-		// the scene's fields are currently empty (don't overwrite user data).
+
+		// Optionally write title + date from the scrape.
 		if opts.WriteMetadata && (r.MatchTitle != "" || r.MatchDate != "") {
 			titleToSet := ""
 			dateToSet := ""

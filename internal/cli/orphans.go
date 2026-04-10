@@ -175,7 +175,7 @@ func runOrphansApply(cmd *cobra.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	if err := apply.PrintOrphansPlan(out, plan, flagOrphansApplyCommit); err != nil {
+	if err := apply.PrintOrphansPlan(out, plan, flagOrphansApplyCommit, cfg.Orphans.WriteStashIDOnApply); err != nil {
 		return err
 	}
 	if !flagOrphansApplyCommit {
@@ -201,6 +201,7 @@ func runOrphansApply(cmd *cobra.Command, args []string) error {
 	}
 
 	reports, err := apply.ExecuteOrphans(ctx, client, st, plan, apply.ExecuteOrphansOpts{
+		WriteStashID:  cfg.Orphans.WriteStashIDOnApply,
 		WriteMetadata: cfg.Orphans.WriteMetadataOnApply,
 	})
 	if err != nil {
