@@ -1,9 +1,9 @@
-# StashJanitor (`stash-janitor`)
+# StashJanitor
 
 A small CLI for finding and resolving duplicate video scenes in a
 [Stash](https://github.com/stashapp/stash) library, safely.
 
-`stash-janitor` solves three related problems:
+StashJanitor solves three related problems:
 
 - **Workflow A — cross-scene duplicates.** Two or more separate Stash scenes
   whose perceptual hashes are similar (the same content stored as different

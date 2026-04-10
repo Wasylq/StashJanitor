@@ -1,4 +1,4 @@
-# stash-janitor User Manual
+# StashJanitor User Manual
 
 ## Install
 

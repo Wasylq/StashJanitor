@@ -21,7 +21,7 @@ var (
 func NewRootCmd() *cobra.Command {
 	root := &cobra.Command{
 		Use:   "stash-janitor",
-		Short: "stash-space-fixer — find and resolve duplicate scenes in a Stash library",
+		Short: "StashJanitor — find and resolve duplicate scenes in a Stash library",
 		Long: `stash-janitor is a CLI for safely deduplicating videos managed by Stash (stashapp/stash).
 
 It addresses two distinct problems:

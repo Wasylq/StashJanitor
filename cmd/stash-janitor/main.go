@@ -1,4 +1,4 @@
-// Command stash-janitor is the stash-space-fixer CLI: a tool for finding and resolving
+// Command stash-janitor is the StashJanitor CLI: a tool for finding and resolving
 // duplicate video scenes in a Stash library.
 //
 // See PLAN.md at the repository root for design and roadmap.
