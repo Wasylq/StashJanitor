@@ -10,9 +10,19 @@ import (
 	"github.com/Wasylq/StashJanitor/internal/cli"
 )
 
+// Set at build time via -ldflags:
+//
+//	go build -ldflags "-X main.version=v0.1.0" ./cmd/stash-janitor
+//
+// The release workflow does this automatically from the git tag.
+var (
+	version = "dev"
+	commit  = "unknown"
+	date    = "unknown"
+)
+
 func main() {
-	if err := cli.NewRootCmd().Execute(); err != nil {
-		// Cobra has already printed the error message; just exit non-zero.
+	if err := cli.NewRootCmd(version, commit, date).Execute(); err != nil {
 		os.Exit(1)
 	}
 }

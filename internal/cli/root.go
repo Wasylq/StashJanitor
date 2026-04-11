@@ -2,6 +2,7 @@
 package cli
 
 import (
+	"fmt"
 	"io"
 	"log/slog"
 
@@ -16,11 +17,12 @@ var (
 )
 
 // NewRootCmd builds the root cobra command and attaches all subcommands.
-// It is exported so main and tests can each construct a fresh tree.
-func NewRootCmd() *cobra.Command {
+// version/commit/date are injected by main via ldflags at build time.
+func NewRootCmd(version, commit, date string) *cobra.Command {
 	root := &cobra.Command{
-		Use:   "stash-janitor",
-		Short: "StashJanitor — find and resolve duplicate scenes in a Stash library",
+		Use:     "stash-janitor",
+		Short:   "StashJanitor — find and resolve duplicate scenes in a Stash library",
+		Version: version,
 		Long: `stash-janitor is a CLI for safely deduplicating videos managed by Stash (stashapp/stash).
 
 It addresses two distinct problems:
@@ -38,6 +40,9 @@ See PLAN.md for the full design.`,
 			return nil
 		},
 	}
+
+	// Custom version template showing commit and date alongside the version tag.
+	root.SetVersionTemplate(fmt.Sprintf("StashJanitor %s (commit: %s, built: %s)\n", version, commit, date))
 
 	root.PersistentFlags().StringVar(&flagConfigPath, "config", "", "path to config file (default: ~/.config/stash-janitor/config.yaml or ./config.yaml)")
 	root.PersistentFlags().StringVar(&flagDBPath, "db", "", "path to local sqlite cache (default: ~/.local/share/stash-janitor/ or ./stash-janitor.sqlite)")
