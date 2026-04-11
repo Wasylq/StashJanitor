@@ -43,13 +43,14 @@ type Config struct {
 }
 
 type OrganizeConfig struct {
-	BaseDir           string   `yaml:"base_dir"`
-	PathTemplate      string   `yaml:"path_template"`
-	SpaceChar         string   `yaml:"space_char"`
-	FolderSpaceChar   string   `yaml:"folder_space_char"`
-	PerformerStrategy string   `yaml:"performer_strategy"`
-	RequiredFields    []string `yaml:"required_fields"`
-	RenameInPlace     bool     `yaml:"rename_in_place"`
+	BaseDir                  string   `yaml:"base_dir"`
+	PathTemplate             string   `yaml:"path_template"`
+	SpaceChar                string   `yaml:"space_char"`
+	FolderSpaceChar          string   `yaml:"folder_space_char"`
+	PerformerStrategy        string   `yaml:"performer_strategy"`
+	MaxPerformersInFilename  int      `yaml:"max_performers_in_filename"`
+	RequiredFields           []string `yaml:"required_fields"`
+	RenameInPlace            bool     `yaml:"rename_in_place"`
 }
 
 type OrphansConfig struct {

@@ -66,6 +66,7 @@ func extractVars(scene *stash.Scene, file *stash.VideoFile, cfg *config.Organize
 
 	// Performer selection.
 	vars["performer"] = pickPerformer(scene.Performers, cfg.PerformerStrategy)
+	vars["performers"] = joinPerformers(scene.Performers, cfg)
 
 	if file != nil {
 		vars["resolution"] = heightToToken(file.Height)
@@ -97,6 +98,25 @@ func pickPerformer(performers []stash.Performer, strategy string) string {
 	default:
 		return performers[0].Name
 	}
+}
+
+// joinPerformers builds the {performers} variable: all performer names
+// joined by underscore (spaces within names stay as spaces — substituteVars
+// will replace them with space_char later). If the scene has more performers
+// than cfg.MaxPerformersInFilename, returns empty string (performers omitted).
+func joinPerformers(performers []stash.Performer, cfg *config.OrganizeConfig) string {
+	if len(performers) == 0 {
+		return ""
+	}
+	if cfg.MaxPerformersInFilename > 0 && len(performers) > cfg.MaxPerformersInFilename {
+		return ""
+	}
+	names := make([]string, len(performers))
+	for i, p := range performers {
+		names[i] = p.Name
+	}
+	sort.Strings(names)
+	return strings.Join(names, "_")
 }
 
 // renderTemplate substitutes {variables} in the template string. The

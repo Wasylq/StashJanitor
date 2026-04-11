@@ -189,8 +189,14 @@ organize:
   #
   # Folder separators in the template create subdirectories.
   #
-  # Performer-first (default — matches the YYYY-MM-DD_Performer-Title convention):
-  path_template: "{performer}/{date}_{performer}-{title}_{resolution}.{ext}"
+  # Available variables:
+  #   {performer}   — primary performer (for folder name)
+  #   {performers}  — ALL performers joined by _ (for filename)
+  #                   omitted entirely if scene has > max_performers_in_filename
+  #   {studio}, {title}, {date}, {year}, {resolution}, {ext}, {id}
+  #
+  # Performer-first (default — matches the YYYY-MM-DD_Perf1_Perf2-Title convention):
+  path_template: "{performer}/{date}_{performers}-{title}_{resolution}.{ext}"
   #
   # Studio-first (Whisparr-compatible — organizes by site/studio):
   # path_template: "{studio}/{date} - {title}/{date}_{performer}-{title}_{resolution}.{ext}"
@@ -207,6 +213,11 @@ organize:
   # first_alphabetical — alphabetically first (deterministic, stable)
   # first_listed       — first in Stash's performer order
   performer_strategy: first_alphabetical
+
+  # Max performers to include in the {performers} filename variable.
+  # If a scene has MORE than this, {performers} resolves to empty string
+  # (performers are omitted from the filename). Set to 0 for no limit.
+  max_performers_in_filename: 3
 
   # Scenes missing ANY of these fields are skipped (left where they are).
   required_fields:
