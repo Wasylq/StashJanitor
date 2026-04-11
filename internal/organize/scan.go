@@ -56,6 +56,7 @@ func Scan(ctx context.Context, c *stash.Client, st *store.Store, cfg *config.Con
 
 	res := &ScanResult{ScanRunID: runID}
 	targetSeen := map[string]*store.OrganizePlan{} // target_path → first plan that claimed it
+	existingPaths := map[string]string{}            // path → scene_id for files already on disk
 	page := 1
 	totalScenes := -1
 
@@ -71,6 +72,15 @@ func Scan(ctx context.Context, c *stash.Client, st *store.Store, cfg *config.Con
 		}
 		if len(result.Scenes) == 0 {
 			break
+		}
+
+		// First pass: record all existing file paths on this page so we
+		// can detect "target already occupied by another file on disk".
+		for i := range result.Scenes {
+			for j := range result.Scenes[i].Files {
+				f := &result.Scenes[i].Files[j]
+				existingPaths[f.Path] = result.Scenes[i].ID
+			}
 		}
 
 		for i := range result.Scenes {
@@ -116,10 +126,18 @@ func Scan(ctx context.Context, c *stash.Client, st *store.Store, cfg *config.Con
 				res.Moves++
 			}
 
-			// Track for conflict detection (below).
+			// Conflict detection: check both "another file in this plan
+			// wants the same target" AND "a file already exists at the
+			// target path on disk (different scene)".
 			if plan.Status == "move" || plan.Status == "rename" {
-				if existing, ok := targetSeen[target]; ok {
-					// Conflict: two different files → same target.
+				// Check 1: another scene already at the target path on disk.
+				if occupantScene, occupied := existingPaths[target]; occupied && occupantScene != scene.ID {
+					plan.Status = "conflict"
+					plan.Reason = fmt.Sprintf("target path already occupied by scene %s", occupantScene)
+					res.Conflicts++
+					res.Moves-- // we already incremented above
+				} else if existing, ok := targetSeen[target]; ok {
+					// Check 2: two plans in this scan collide.
 					if existing.Status != "conflict" {
 						existing.Status = "conflict"
 						existing.Reason = fmt.Sprintf("conflicts with file %s (scene %s)", plan.FileID, plan.SceneID)
@@ -129,11 +147,7 @@ func Scan(ctx context.Context, c *stash.Client, st *store.Store, cfg *config.Con
 					plan.Status = "conflict"
 					plan.Reason = fmt.Sprintf("conflicts with file %s (scene %s)", existing.FileID, existing.SceneID)
 					res.Conflicts++
-					if plan.Status == "move" {
-						res.Moves--
-					} else {
-						res.Renames--
-					}
+					res.Moves--
 				} else {
 					targetSeen[target] = plan
 				}
