@@ -88,6 +88,10 @@ func runOrganizeScan(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(out, "  already correct:   %d\n", res.AlreadyCorrect)
 	fmt.Fprintf(out, "  skip (no metadata):%d\n", res.SkipNoMetadata)
 	fmt.Fprintf(out, "  conflicts:         %d\n", res.Conflicts)
+	if res.MultiFileWarning > 0 {
+		fmt.Fprintf(out, "\n  ⚠ %d scenes have multiple files — only the primary file is moved.\n", res.MultiFileWarning)
+		fmt.Fprintf(out, "    Run `stash-janitor files apply --commit` first to clean up multi-file scenes.\n")
+	}
 	fmt.Fprintln(out, "\nNext: `stash-janitor organize report` to see proposed moves.")
 	return nil
 }

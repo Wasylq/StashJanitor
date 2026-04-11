@@ -20,13 +20,14 @@ type ScanOptions struct {
 
 // ScanResult summarizes the scan for the CLI.
 type ScanResult struct {
-	ScanRunID       int64
-	ScenesProcessed int
-	Moves           int
-	Renames         int
-	AlreadyCorrect  int
-	SkipNoMetadata  int
-	Conflicts       int
+	ScanRunID        int64
+	ScenesProcessed  int
+	Moves            int
+	Renames          int
+	AlreadyCorrect   int
+	SkipNoMetadata   int
+	Conflicts        int
+	MultiFileWarning int // scenes with >1 file where only primary gets moved
 }
 
 // Scan walks every scene in Stash, computes the ideal path per the
@@ -92,6 +93,12 @@ func Scan(ctx context.Context, c *stash.Client, st *store.Store, cfg *config.Con
 			pf := scene.PrimaryFile()
 			if pf == nil {
 				continue
+			}
+
+			// Warn about multi-file scenes: only the primary file gets
+			// organized, others stay where they are.
+			if len(scene.Files) > 1 {
+				res.MultiFileWarning++
 			}
 
 			target, skipReason := ComputeTargetPath(scene, pf, orgCfg)

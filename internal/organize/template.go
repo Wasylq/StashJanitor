@@ -4,12 +4,18 @@ package organize
 
 import (
 	"path/filepath"
+	"regexp"
 	"sort"
 	"strings"
+	"unicode"
 
 	"github.com/Wasylq/StashJanitor/internal/config"
 	"github.com/Wasylq/StashJanitor/internal/stash"
 )
+
+// maxPathLen is the maximum total path length we'll produce. Paths longer
+// than this get truncated with a _{id} suffix for uniqueness.
+const maxPathLen = 240 // leave room for the _{id}.ext suffix
 
 // ComputeTargetPath applies the path template to a scene's metadata and
 // returns the full target path (base_dir + rendered template). Returns ""
@@ -29,7 +35,12 @@ func ComputeTargetPath(scene *stash.Scene, file *stash.VideoFile, cfg *config.Or
 		return "", "template rendered to empty string"
 	}
 
-	return filepath.Join(cfg.BaseDir, rendered), ""
+	fullPath := filepath.Join(cfg.BaseDir, rendered)
+
+	// Enforce path length limit to avoid filesystem errors.
+	fullPath = truncatePath(fullPath, scene.ID)
+
+	return fullPath, ""
 }
 
 // extractVars builds the {variable} → value map from scene metadata.
@@ -106,14 +117,15 @@ func renderTemplate(tmpl string, vars map[string]string, cfg *config.OrganizeCon
 }
 
 // substituteVars replaces {key} placeholders with values, using spaceChar
-// to replace spaces within each value.
+// to replace spaces within each value. Each value is sanitized first
+// (slashes removed, control chars stripped) to prevent path injection.
 func substituteVars(s string, vars map[string]string, spaceChar string) string {
 	for key, val := range vars {
 		placeholder := "{" + key + "}"
 		if !strings.Contains(s, placeholder) {
 			continue
 		}
-		rendered := val
+		rendered := sanitizeValue(val)
 		if spaceChar != " " && spaceChar != "" {
 			rendered = strings.ReplaceAll(rendered, " ", spaceChar)
 		}
@@ -121,6 +133,10 @@ func substituteVars(s string, vars map[string]string, spaceChar string) string {
 	}
 	return s
 }
+
+// emojiAndNonASCIIRegex matches emoji and other non-ASCII characters that
+// can cause trouble on NFS/SMB mounts and Windows filesystems.
+var emojiAndNonASCIIRegex = regexp.MustCompile(`[^\x20-\x7E]`)
 
 // sanitizePath cleans up characters that are problematic in filenames.
 func sanitizePath(p string) string {
@@ -136,15 +152,78 @@ func sanitizePath(p string) string {
 	)
 	p = replacer.Replace(p)
 
-	// Collapse multiple spaces/dots.
+	// Strip emoji and non-ASCII (problematic on NFS/SMB/Windows).
+	p = emojiAndNonASCIIRegex.ReplaceAllString(p, "")
+
+	// Collapse multiple spaces/dots/underscores left by stripping.
 	for strings.Contains(p, "  ") {
 		p = strings.ReplaceAll(p, "  ", " ")
 	}
 	for strings.Contains(p, "..") {
 		p = strings.ReplaceAll(p, "..", ".")
 	}
+	for strings.Contains(p, "__") {
+		p = strings.ReplaceAll(p, "__", "_")
+	}
+
+	// Strip leading/trailing dots and spaces from each path component
+	// (Windows rejects these).
+	parts := strings.Split(p, string(filepath.Separator))
+	for i, part := range parts {
+		parts[i] = strings.TrimFunc(part, func(r rune) bool {
+			return r == '.' || r == ' '
+		})
+	}
+	p = strings.Join(parts, string(filepath.Separator))
 
 	return filepath.Clean(p)
+}
+
+// sanitizeValue cleans a single template variable value before substitution.
+// This runs BEFORE the value is placed into the path, so slashes in a
+// performer name like "Step-Mom/Step-Son" don't create subdirectories.
+func sanitizeValue(v string) string {
+	// Replace forward slash with dash (would create unwanted subdirs).
+	v = strings.ReplaceAll(v, "/", "-")
+	// Replace backslash too (Windows path separator).
+	v = strings.ReplaceAll(v, "\\", "-")
+	// Strip control characters.
+	v = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, v)
+	return v
+}
+
+// truncatePath ensures the total path length stays under maxPathLen.
+// If it's too long, the filename (last component) gets truncated and
+// a _{sceneID} suffix is appended for uniqueness.
+func truncatePath(fullPath string, sceneID string) string {
+	if len(fullPath) <= maxPathLen {
+		return fullPath
+	}
+
+	dir := filepath.Dir(fullPath)
+	ext := filepath.Ext(fullPath)
+	suffix := "_" + sceneID + ext
+
+	// How much room do we have for the base name?
+	available := maxPathLen - len(dir) - 1 - len(suffix) // -1 for separator
+	if available < 10 {
+		// Dir itself is too long; just use scene ID as filename.
+		return filepath.Join(dir, sceneID+ext)
+	}
+
+	base := strings.TrimSuffix(filepath.Base(fullPath), ext)
+	if len(base) > available {
+		base = base[:available]
+	}
+	// Trim trailing dots/spaces from the truncated base.
+	base = strings.TrimRight(base, ". ")
+
+	return filepath.Join(dir, base+suffix)
 }
 
 // heightToToken maps video height to a filename resolution token.

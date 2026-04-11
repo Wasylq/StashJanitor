@@ -1,6 +1,7 @@
 package organize
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/Wasylq/StashJanitor/internal/config"
@@ -122,6 +123,68 @@ func TestComputeTargetPathStudioTemplate(t *testing.T) {
 	want := "/data/On A Dogging Mission/2016-10-14 - Blonde MILF Dogging/2016-10-14_Gemma.Gold-Blonde.MILF.Dogging_1080p.mp4"
 	if target != want {
 		t.Errorf("got:  %s\nwant: %s", target, want)
+	}
+}
+
+func TestComputeTargetPathSlashInTitle(t *testing.T) {
+	scene := &stash.Scene{
+		ID: "42", Title: "Step-Mom/Step-Son Fantasy", Date: "2024-01-01",
+		Performers: []stash.Performer{{Name: "Test Performer"}},
+	}
+	file := &stash.VideoFile{Basename: "x.mp4", Height: 1080}
+	target, _ := ComputeTargetPath(scene, file, defaultCfg())
+	// Slash should be replaced with dash, not create a subdirectory.
+	// Expected: /data/Test Performer/...Step-Mom-Step-Son... (3 slashes total)
+	if strings.Contains(target, "Step-Mom/Step-Son") {
+		t.Errorf("raw slash survived in path: %s", target)
+	}
+	if !strings.Contains(target, "Step-Mom-Step-Son") {
+		t.Errorf("expected slash replaced with dash, got: %s", target)
+	}
+}
+
+func TestComputeTargetPathEmojiStripped(t *testing.T) {
+	scene := &stash.Scene{
+		ID: "42", Title: "🎄 No PPV 🎄 Holiday Special", Date: "2024-12-25",
+		Performers: []stash.Performer{{Name: "Test"}},
+	}
+	file := &stash.VideoFile{Basename: "x.mp4", Height: 1080}
+	target, _ := ComputeTargetPath(scene, file, defaultCfg())
+	if strings.ContainsRune(target, '🎄') {
+		t.Errorf("emoji survived in path: %s", target)
+	}
+	// Should still have the text content.
+	if !strings.Contains(target, "Holiday") {
+		t.Errorf("expected 'Holiday' in path, got: %s", target)
+	}
+}
+
+func TestComputeTargetPathLongTitleTruncated(t *testing.T) {
+	longTitle := strings.Repeat("A Very Long Title ", 20) // ~360 chars
+	scene := &stash.Scene{
+		ID: "42", Title: longTitle, Date: "2024-01-01",
+		Performers: []stash.Performer{{Name: "Test"}},
+	}
+	file := &stash.VideoFile{Basename: "x.mp4", Height: 1080}
+	target, _ := ComputeTargetPath(scene, file, defaultCfg())
+	if len(target) > 255 {
+		t.Errorf("path too long (%d chars): %s", len(target), target)
+	}
+	// Should contain the scene ID for uniqueness.
+	if !strings.Contains(target, "42") {
+		t.Errorf("truncated path should contain scene ID for uniqueness: %s", target)
+	}
+}
+
+func TestComputeTargetPathBackslashInPerformer(t *testing.T) {
+	scene := &stash.Scene{
+		ID: "42", Title: "Title", Date: "2024-01-01",
+		Performers: []stash.Performer{{Name: "Performer\\Name"}},
+	}
+	file := &stash.VideoFile{Basename: "x.mp4", Height: 1080}
+	target, _ := ComputeTargetPath(scene, file, defaultCfg())
+	if strings.Contains(target, "\\") {
+		t.Errorf("backslash survived in path: %s", target)
 	}
 }
 
